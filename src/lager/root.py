@@ -90,6 +90,24 @@ def check_root(path: Path) -> Check:
     )
 
 
+def create_structure(target: Path) -> None:
+    """Legt in `target` ein leeres Lager an: categories.yaml und _vorlage/part.yaml.
+
+    Vorhandene Dateien bleiben unverändert.
+    """
+    from . import categories as catmod
+    from . import parts as partmod
+
+    target.mkdir(parents=True, exist_ok=True)
+    if not (target / CATEGORY_MARKER).exists():
+        catmod.save(target, [])
+    vorlage = target / "_vorlage"
+    vorlage.mkdir(exist_ok=True)
+    template = vorlage / "part.yaml"
+    if not template.exists():
+        template.write_text(partmod.HEADER + partmod.empty_doc_yaml(), encoding="utf-8")
+
+
 def candidate_roots(cfg: dict | None = None) -> list[Path]:
     """Kandidaten für den Lager-Root, in Prioritätsreihenfolge."""
     if cfg is None:

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Neues Bauteil – Lager{% endblock %}
+{% block main %}
+  <article class="detail">
+    <h1>Neues Bauteil</h1>
+    {% if schreibschutz %}
+    <p class="empty">Der Schreibschutz ist aktiv. Bauteile lassen sich hier nicht anlegen.</p>
+    {% else %}
+    <form action="/neu" method="post" enctype="multipart/form-data" class="stack">
+      <label for="bezeichnung">Bezeichnung</label>
+      <input id="bezeichnung" type="text" name="bezeichnung" value="{{ form.bezeichnung }}" required
+             placeholder="z. B. IRLZ44N" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <p class="hint">Wird zum Ordnernamen: Großbuchstaben, Ziffern und - _ . +</p>
+
+      <label for="kategorie">Kategorie</label>
+      <select id="kategorie" name="kategorie">
+        <option value="">– wählen –</option>
+        {% for k in kategorien %}
+        <option value="{{ k.id }}"{% if form.kategorie == k.id %} selected{% endif %}>{{ k.label }}</option>
+        {% endfor %}
+      </select>
+      <label for="neue_kategorie">oder neue Kategorie anlegen</label>
+      <input id="neue_kategorie" type="text" name="neue_kategorie" value="{{ form.neue_kategorie }}"
+             placeholder="z. B. Kondensatoren" autocomplete="off">
+
+      <label for="name">Beschreibung</label>
+      <input id="name" type="text" name="name" value="{{ form.name }}"
+             placeholder="z. B. MOSFET N-Kanal 55 V / 47 A, TO-220" autocomplete="off">
+
+      <label for="dateien">Datenblatt und andere Dateien</label>
+      <input id="dateien" type="file" name="dateien" multiple>
+      <p class="hint">PDF, STEP, KiCad, Bilder. Mehrere Dateien sind möglich.</p>
+
+      <label for="hersteller">Hersteller</label>
+      <input id="hersteller" type="text" name="hersteller" value="{{ form.hersteller }}" autocomplete="off">
+
+      <label for="lagerfach">Lagerfach</label>
+      <input id="lagerfach" type="text" name="lagerfach" value="{{ form.lagerfach }}" autocomplete="off">
+
+      <label for="menge">Menge</label>
+      <input id="menge" type="number" name="menge" value="{{ form.menge }}" step="1" inputmode="numeric">
+
+      <label for="tags">Tags</label>
+      <input id="tags" type="text" name="tags" value="{{ form.tags }}"
+             placeholder="mit Komma getrennt, z. B. n-kanal, to-220" autocomplete="off" autocapitalize="off">
+
+      <label for="aliase">Aliase</label>
+      <input id="aliase" type="text" name="aliase" value="{{ form.aliase }}"
+             placeholder="weitere Bezeichnungen, mit Komma getrennt" autocomplete="off" autocapitalize="off">
+
+      <label for="notizen">Notizen</label>
+      <textarea id="notizen" name="notizen" rows="3">{{ form.notizen }}</textarea>
+
+      <button type="submit">Bauteil anlegen</button>
+    </form>
+    {% endif %}
+  </article>
+{% endblock %}

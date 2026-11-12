@@ -63,6 +63,21 @@
       </ul>
     </section>
     {% endif %}
+
+    {% if not schreibschutz %}
+    <section>
+      <h2>Dateien hinzufügen</h2>
+      <form action="/p/{{ teil.part | urlencode }}/dateien" method="post" enctype="multipart/form-data" class="stack">
+        <label for="dateien">Datenblatt und andere Dateien</label>
+        <input id="dateien" type="file" name="dateien" multiple required>
+        <p class="hint">
+          PDFs kommen direkt in den Bauteil-Ordner, 3D-Modelle, KiCad-Dateien und Bilder in ihre
+          Unterordner. Vorhandene Dateien werden nicht überschrieben.
+        </p>
+        <button type="submit">Hochladen</button>
+      </form>
+    </section>
+    {% endif %}
   </article>
   {% endif %}
 {% endblock %}

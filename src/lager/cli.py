@@ -7,14 +7,18 @@ Meldung auf stderr.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
+from typing import List
 
 import typer
 
 from . import __version__, categories as catmod
 from . import db as dbmod
+from . import files as filesmod
 from . import indexer
 from . import parts as partmod
 from . import root as rootmod
@@ -127,14 +131,7 @@ def init(
             err=True,
         )
         raise typer.Exit(1)
-    target.mkdir(parents=True, exist_ok=True)
-    if not (target / rootmod.CATEGORY_MARKER).exists():
-        catmod.save(target, [])
-    vorlage = target / "_vorlage"
-    vorlage.mkdir(exist_ok=True)
-    template = vorlage / "part.yaml"
-    if not template.exists():
-        template.write_text(partmod.HEADER + partmod.empty_doc_yaml(), encoding="utf-8")
+    rootmod.create_structure(target)
     set_lager_root(str(target))
     check = rootmod.check_root(target)
     _print(
@@ -352,6 +349,82 @@ def part_show(
     _print({"ordner": str(pdir), "daten": data, "dateien": files}, as_json)
 
 
+@part_app.command("attach")
+def part_attach(
+    bezeichnung: str = typer.Argument(..., help="Bauteil-Bezeichnung, z. B. IRLZ44N"),
+    dateien: List[Path] = typer.Argument(
+        ..., help="Eine oder mehrere Dateien (Datenblatt, STEP, KiCad, Bild …)"
+    ),
+    move: bool = typer.Option(
+        False, "--move", help="Dateien verschieben statt kopieren (Original wird gelöscht)."
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Nimmt Dateien in den Ordner eines Bauteils auf (PDF direkt, 3D/KiCad/Bilder in Unterordner)."""
+    root = _require_root()
+    pdir = partmod.find_part_dir(root, bezeichnung)
+    if pdir is None:
+        _fail(f"Teil nicht gefunden: {bezeichnung}")
+    missing = [str(f) for f in dateien if not f.is_file()]
+    if missing:
+        _fail(f"Datei nicht gefunden: {', '.join(missing)}")
+    cfg = load_config()
+    added: list[str] = []
+    try:
+        for source in dateien:
+            target = filesmod.add_file_from_path(pdir, source, cfg, move=move)
+            added.append(target.relative_to(pdir).as_posix())
+    except (ValueError, OSError) as e:
+        if added:
+            _refresh_index(root)
+        _fail(f"{e} (bereits aufgenommen: {', '.join(added) or 'nichts'})")
+    _refresh_index(root)
+    _print({"teil": pdir.name, "ordner": str(pdir), "hinzugefuegt": added}, as_json)
+
+
+def _open_with_default_app(path: Path) -> None:
+    """Öffnet eine Datei oder einen Ordner mit dem Standardprogramm des Systems."""
+    if sys.platform == "win32":
+        os.startfile(str(path))
+    elif sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+    else:
+        subprocess.run(["xdg-open", str(path)], check=False)
+
+
+@part_app.command("open")
+def part_open(
+    bezeichnung: str = typer.Argument(..., help="Bauteil-Bezeichnung, z. B. IRLZ44N"),
+    datei: str = typer.Option(
+        "", "--file", "-f", help="Bestimmte Datei im Bauteil-Ordner, z. B. 3d/TO-220.step"
+    ),
+    folder: bool = typer.Option(False, "--folder", help="Den Bauteil-Ordner statt einer Datei öffnen."),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Öffnet das Datenblatt eines Bauteils (oder eine andere Datei, oder den Ordner)."""
+    root = _require_root()
+    pdir = partmod.find_part_dir(root, bezeichnung)
+    if pdir is None:
+        _fail(f"Teil nicht gefunden: {bezeichnung}")
+    if folder:
+        target = pdir
+    elif datei:
+        target = (pdir / datei).resolve()
+        if pdir.resolve() not in target.parents or not target.is_file():
+            _fail(f"Datei nicht im Bauteil-Ordner gefunden: {datei}")
+    else:
+        found = indexer.scan_files(pdir, indexer.kind_by_ext_map(load_config()))
+        sheets = [f for f in found if f.kind == indexer.DATASHEET_KIND]
+        if not sheets:
+            _fail(f"Kein Datenblatt im Ordner von {pdir.name}. Hinzufügen: lager part attach {pdir.name} <datei>")
+        target = pdir / sheets[0].rel_path
+    try:
+        _open_with_default_app(target)
+    except OSError as e:
+        _fail(f"Konnte nicht geöffnet werden: {target} ({e})")
+    _print({"teil": pdir.name, "geoeffnet": str(target)}, as_json)
+
+
 @part_app.command("search")
 def part_search(
     begriff: str = typer.Argument(
@@ -361,7 +434,7 @@ def part_search(
     limit: int = typer.Option(50, "--limit", help="Höchstzahl der Treffer"),
     as_json: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Sucht Bauteile im Index (Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie)."""
+    """Sucht Bauteile im Index (Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie, Dateinamen)."""
     root = _require_root()
     try:
         indexer.ensure_index(root, load_config())

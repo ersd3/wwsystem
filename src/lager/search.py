@@ -67,7 +67,8 @@ def search(
     """Sucht Bauteile. Jeder Begriff muss vorkommen; Groß-/Kleinschreibung ist egal.
 
     Durchsucht werden Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie,
-    Unterkategorie und Lagerfach. Ohne Begriff kommen alle Bauteile zurück.
+    Unterkategorie, Lagerfach und die Dateinamen im Bauteil-Ordner. Ohne Begriff
+    kommen alle Bauteile zurück.
     Treffer mit genau passender Bezeichnung stehen vorn.
     """
     terms = query.casefold().split()

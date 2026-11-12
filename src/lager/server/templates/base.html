@@ -15,9 +15,25 @@
       {% if kategorie %}<input type="hidden" name="kategorie" value="{{ kategorie }}">{% endif %}
       <button type="submit">Suchen</button>
     </form>
+    {% if not schreibschutz %}
+    <a class="add" href="/neu{% if kategorie %}?kategorie={{ kategorie | urlencode }}{% endif %}"
+       title="Neues Bauteil anlegen" aria-label="Neues Bauteil anlegen">+</a>
+    {% endif %}
   </header>
 
   <main>
+    {% if meldung %}<p class="notice" role="alert">{{ meldung }}</p>{% endif %}
+    {% if erfolg %}
+    <div class="notice ok" role="status">
+      <p>{{ erfolg }}</p>
+      {% if warnungen %}
+      <p>{{ warnungen | length }} {{ "Hinweis" if warnungen | length == 1 else "Hinweise" }} beim Einlesen:</p>
+      <ul>
+        {% for w in warnungen %}<li><span class="path">{{ w.pfad }}</span>: {{ w.grund }}</li>{% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+    {% endif %}
     {% block main %}{% endblock %}
   </main>
 
@@ -26,10 +42,28 @@
       {{ index.teile }} Bauteile · {{ index.dateien }} Dateien ·
       eingelesen {{ index.aufgebaut_am | replace('T', ' ') | replace('Z', ' UTC') }}
     </p>
+    <p>Lager-Ordner: <span class="path">{{ lager_root }}</span></p>
     {% if not schreibschutz %}
     <form action="/index/rebuild" method="post">
       <button type="submit" class="quiet">Ordner neu einlesen</button>
     </form>
+    {% if lokal %}
+    <details class="settings">
+      <summary>Lager-Ordner ändern</summary>
+      <form action="/einstellungen/lager-ordner" method="post" class="stack">
+        <label for="pfad">Vollständiger Pfad zum Lager-Ordner</label>
+        <input id="pfad" type="text" name="pfad" value="{{ lager_root }}" required
+               autocomplete="off" autocapitalize="off" spellcheck="false">
+        <label class="check">
+          <input type="checkbox" name="anlegen" value="1">
+          Neues Lager anlegen, falls der Ordner leer ist oder noch nicht existiert
+        </label>
+        <button type="submit">Übernehmen</button>
+      </form>
+    </details>
+    {% else %}
+    <p class="small">Der Lager-Ordner lässt sich nur an dem PC ändern, auf dem der Server läuft.</p>
+    {% endif %}
     {% endif %}
     <p class="small">Lager {{ version }} · <a href="/docs">API</a></p>
   </footer>

@@ -1,14 +1,8 @@
-"""Tests für das Server-Grundgerüst: REST-API, Dateien, Handy-Seiten."""
-import pytest
-from fastapi.testclient import TestClient
+"""Tests für den Server (lesend): REST-API, Dateien, Handy-Seiten.
 
+Die Fixtures client, phone, geschuetzt, app und config_path stehen in conftest.py.
+"""
 from lager import __version__
-from lager.server.app import create_app
-
-
-@pytest.fixture()
-def client(lager_voll):
-    return TestClient(create_app(lager_voll, {"write_token": ""}))
 
 
 def test_health(client):
@@ -54,8 +48,8 @@ def test_api_index_status_und_rebuild(client, lager_voll):
     assert result["dateien_nach_art"]["datasheet"] == 3
 
 
-def test_schreibschutz_mit_token(lager_voll):
-    client = TestClient(create_app(lager_voll, {"write_token": "geheim"}))
+def test_schreibschutz_mit_token(geschuetzt):
+    client = geschuetzt
     assert client.post("/api/v1/index/rebuild").status_code == 403
     assert client.post("/api/v1/index/rebuild", headers={"X-Lager-Token": "falsch"}).status_code == 403
     ok = client.post("/api/v1/index/rebuild", headers={"X-Lager-Token": "geheim"})

@@ -37,6 +37,30 @@ class Part(BaseModel):
     files: List[FileEntry]
 
 
+class NewPart(BaseModel):
+    part: str
+    category: str
+    name: str = ""
+    manufacturer: str = ""
+    quantity: int = 0
+    unit: str = "Stk"
+    location: str = ""
+    aliases: List[str] = []
+    tags: List[str] = []
+    notes: str = ""
+
+
+class NewCategory(BaseModel):
+    id: str
+    label: str = ""
+
+
+class UploadResult(BaseModel):
+    hinzugefuegt: List[str]
+    fehler: List[str]
+    teil: Part
+
+
 class SearchResult(BaseModel):
     suche: str
     kategorie: str

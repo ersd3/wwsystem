@@ -52,6 +52,20 @@ def find_part(root: Path, raw_id: str) -> tuple[Path, dict] | None:
     return None
 
 
+def find_part_dir(root: Path, raw_id: str) -> Path | None:
+    """Ordner eines Teils über seine Bezeichnung, ohne die part.yaml zu lesen."""
+    target = normalize_part_id(raw_id).lower()
+    if not target:
+        return None
+    for py in sorted(root.rglob("part.yaml")):
+        rel = py.relative_to(root)
+        if any(piece.startswith(("_", ".")) for piece in rel.parts):
+            continue
+        if py.parent.name.lower() == target:
+            return py.parent
+    return None
+
+
 def empty_doc_yaml() -> str:
     """Inhalt einer unbelegten part.yaml (für die Vorlage)."""
     doc = {
@@ -73,16 +87,22 @@ def create_part(root: Path, category_id: str, raw_id: str, data: dict) -> Path:
     part_id = normalize_part_id(raw_id)
     if not part_id or not PART_ID_RE.match(part_id):
         raise ValueError(f"Ungültige Bauteil-Bezeichnung: {raw_id!r}")
-    cat_dir = root / category_id
+    category_path = Path(category_id)
+    if not category_id.strip() or category_path.is_absolute() or ".." in category_path.parts:
+        raise ValueError(f"Ungültige Kategorie: {category_id!r}")
+    cat_dir = root / category_path
     if not cat_dir.is_dir():
         raise ValueError(
             f"Kategorie existiert nicht: {category_id} "
             f"(erst: lager category add {category_id})"
         )
+    # Die Bezeichnung ist im ganzen Lager eindeutig (Adresse /p/<BEZEICHNUNG>, QR-Etikett).
+    existing = find_part_dir(root, part_id)
+    if existing is not None:
+        raise ValueError(f"Teil existiert bereits: {existing}")
     pdir = cat_dir / part_id
-    if (pdir / "part.yaml").exists():
-        raise ValueError(f"Teil existiert bereits: {pdir}")
-    pdir.mkdir(parents=False)
+    # Ein schon vorhandener Ordner ohne part.yaml (z. B. mit PDFs) wird übernommen.
+    pdir.mkdir(parents=False, exist_ok=True)
     doc = {
         "part": part_id,
         "name": data.get("name", ""),

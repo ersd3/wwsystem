@@ -27,6 +27,9 @@ DEFAULT_FILE_KINDS: dict[str, list[str]] = {
     "image": ["png", "jpg", "jpeg", "gif", "webp", "svg"],
 }
 OTHER_KIND = "other"
+DATASHEET_KIND = "datasheet"
+# Steht in der Tabelle meta: welche Programmversion den Index aufgebaut hat.
+GENERATOR = f"lager {__version__}"
 # Dateien, die Windows selbst in Ordnern ablegt.
 IGNORED_FILES = {"thumbs.db", "desktop.ini"}
 
@@ -64,6 +67,7 @@ class ScannedPart:
         words = [
             self.part, self.name, self.manufacturer, *self.aliases, *self.tags,
             self.category_id, self.category_label, self.subcategory, self.location,
+            *(f.rel_path for f in self.files),
         ]
         return " ".join(w for w in words if w).casefold()
 
@@ -87,7 +91,7 @@ def utc_iso(timestamp: float | None = None) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _kind_by_ext(cfg: dict | None) -> dict[str, str]:
+def kind_by_ext_map(cfg: dict | None) -> dict[str, str]:
     kinds = (cfg or {}).get("file_kinds") or DEFAULT_FILE_KINDS
     out: dict[str, str] = {}
     for kind, extensions in kinds.items():
@@ -118,7 +122,7 @@ def _first_line(error: Exception) -> str:
     return lines[0] if lines else type(error).__name__
 
 
-def _scan_files(part_dir: Path, kind_by_ext: dict[str, str]) -> list[ScannedFile]:
+def scan_files(part_dir: Path, kind_by_ext: dict[str, str]) -> list[ScannedFile]:
     files: list[ScannedFile] = []
     for f in sorted(part_dir.rglob("*")):
         if not f.is_file():
@@ -195,7 +199,7 @@ def _read_part(
         notes=_text(raw.get("notes")),
         aliases=_str_list(raw.get("aliases")),
         tags=_str_list(raw.get("tags")),
-        files=_scan_files(part_dir, kind_by_ext),
+        files=scan_files(part_dir, kind_by_ext),
     )
 
 
@@ -213,7 +217,7 @@ def _walk(
 
 def scan(root: Path, cfg: dict | None = None) -> Scan:
     """Liest die Ordnerstruktur ein, ohne etwas zu verändern."""
-    kind_by_ext = _kind_by_ext(cfg)
+    kind_by_ext = kind_by_ext_map(cfg)
     out = Scan()
 
     by_lower: dict[str, dict[str, Any]] = {}
@@ -312,7 +316,7 @@ def rebuild(root: Path, cfg: dict | None = None) -> dict[str, Any]:
                     by_kind[f.kind] = by_kind.get(f.kind, 0) + 1
             conn.executemany(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
-                [("built_at", utc_iso()), ("generator", f"lager {__version__}")],
+                [("built_at", utc_iso()), ("generator", GENERATOR)],
             )
     except sqlite3.Error as e:
         raise db.IndexDbError(f"Index konnte nicht geschrieben werden: {e}") from e
@@ -365,6 +369,11 @@ def status(root: Path) -> dict[str, Any]:
 
 
 def ensure_index(root: Path, cfg: dict | None = None) -> None:
-    """Baut den Index auf, falls es noch keinen (fertigen) gibt."""
-    if not status(root).get("aufgebaut_am"):
+    """Baut den Index auf, falls er fehlt oder von einer anderen Programmversion stammt.
+
+    Nach einem Update kann sich ändern, was im Index steht (z. B. der Suchtext).
+    Der Neuaufbau beim ersten Zugriff bringt ihn auf den Stand dieser Version.
+    """
+    state = status(root)
+    if not state.get("aufgebaut_am") or state.get("erzeugt_von") != GENERATOR:
         rebuild(root, cfg)

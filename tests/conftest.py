@@ -1,9 +1,46 @@
-"""Gemeinsame Test-Daten: ein kleines Lager mit Bauteilen und Dateien."""
+"""Gemeinsame Test-Daten: ein kleines Lager mit Bauteilen und Dateien, dazu Test-Browser."""
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from lager import categories, parts
+from lager.server.app import create_app
+
+# Absender der Anfragen: der PC, auf dem der Server läuft, und ein anderes Gerät im WLAN.
+LOCAL = ("127.0.0.1", 50000)
+PHONE = ("192.168.1.77", 50000)
+
+
+@pytest.fixture()
+def config_path(tmp_path: Path) -> Path:
+    """Eigene config.yaml je Test, damit nie die echte Projekt-Konfiguration geändert wird."""
+    path = tmp_path / "config.yaml"
+    path.write_text('# Test-Konfiguration\nlager_root: "lager"\nwrite_token: ""\n', encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def app(lager_voll: Path, config_path: Path):
+    return create_app(lager_voll, {"write_token": ""}, config_path)
+
+
+@pytest.fixture()
+def client(app) -> TestClient:
+    """Browser auf dem PC, auf dem der Server läuft."""
+    return TestClient(app, client=LOCAL)
+
+
+@pytest.fixture()
+def phone(app) -> TestClient:
+    """Browser auf einem anderen Gerät im WLAN."""
+    return TestClient(app, client=PHONE)
+
+
+@pytest.fixture()
+def geschuetzt(lager_voll: Path, config_path: Path) -> TestClient:
+    """Server mit gesetztem write_token "geheim"."""
+    return TestClient(create_app(lager_voll, {"write_token": "geheim"}, config_path), client=LOCAL)
 
 
 def _write(path: Path, content: bytes = b"x") -> None:

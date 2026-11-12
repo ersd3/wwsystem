@@ -8,3 +8,5 @@ categories:
   label: MOSFETs
 - id: widerstaende
   label: Widerstände
+- id: transistoren
+  label: Transistoren

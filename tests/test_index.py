@@ -252,8 +252,39 @@ def test_suche_genaue_bezeichnung_zuerst(conn):
 
 def test_suche_platzhalter_sind_normale_zeichen(conn):
     assert _found(conn, "%") == []
-    assert _found(conn, "_") == []
+    # Als Platzhalter würde "_" alle vier Bauteile treffen. Als normales Zeichen
+    # passt es nur auf den Dateinamen TO-220.kicad_mod.
+    assert _found(conn, "_") == ["IRLZ44N"]
     assert _found(conn, "0.1w") == ["223-0.1W"]
+
+
+def test_suche_in_dateinamen(conn):
+    assert _found(conn, "irf9540n.pdf") == ["IRF9540N"]
+    assert _found(conn, "foto") == ["IRLZ44N"]
+    assert _found(conn, "kicad_mod") == ["IRLZ44N"]
+    assert _found(conn, "pdf") == ["IRF9540N", "IRLZ44N"]
+    assert _found(conn, "mosfet pdf") == ["IRF9540N", "IRLZ44N"]
+
+
+def test_index_einer_anderen_version_wird_neu_aufgebaut(lager_voll):
+    indexer.rebuild(lager_voll)
+    raw = sqlite3.connect(db.db_path(lager_voll))
+    raw.execute("UPDATE meta SET value = 'lager 0.0.1' WHERE key = 'generator'")
+    raw.execute("UPDATE parts SET search_text = ''")
+    raw.commit()
+    raw.close()
+
+    indexer.ensure_index(lager_voll)
+    assert indexer.status(lager_voll)["erzeugt_von"] == indexer.GENERATOR
+    connection = _conn(lager_voll)
+    try:
+        assert _found(connection, "irlz44n") == ["IRLZ44N"]
+    finally:
+        connection.close()
+
+    built_at = indexer.status(lager_voll)["aufgebaut_am"]
+    indexer.ensure_index(lager_voll)  # gleiche Version: kein weiterer Aufbau nötig
+    assert indexer.status(lager_voll)["aufgebaut_am"] == built_at
 
 
 def test_dateien_datenblatt_zuerst(conn):

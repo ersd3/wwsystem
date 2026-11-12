@@ -40,7 +40,8 @@ CREATE TABLE parts (
     location     TEXT NOT NULL DEFAULT '',
     notes        TEXT NOT NULL DEFAULT '',
     -- Alle Suchfelder in Kleinbuchstaben, durch Leerzeichen getrennt:
-    -- Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie, Unterkategorie, Lagerfach.
+    -- Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie, Unterkategorie, Lagerfach
+    -- und die Pfade der Dateien im Bauteil-Ordner (z. B. kicad/to-220.kicad_mod).
     -- Suche: search_text LIKE '%begriff%' mit dem Begriff in Kleinbuchstaben.
     search_text  TEXT NOT NULL DEFAULT ''
 );

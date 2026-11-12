@@ -1,6 +1,6 @@
 # Konzept — Bauteile-Lagersystem ("Lager")
 
-Stand: 2026-11-12 · Status: Phase 0.1 und 0.2 umgesetzt · Grundgerüst für Suche (Phase 1) und Server mit Handy-Seiten (Phase 2) steht · Stand je Phase: §10
+Stand: 2026-11-12 · Version 0.3.0 · Status: Phase 0.1, 0.2 und 1 umgesetzt · Phase 2 (Server mit Handy-Seiten) läuft, inklusive Bauteile anlegen und Dateien hochladen · Stand je Phase: §10
 
 ## 1. Ziel
 
@@ -77,6 +77,11 @@ Auflösungsreihenfolge:
    **oder** darunter `kategorie/<...>/part.yaml` existiert (Struktur passt)
 
 Befehle: `lager init <pfad>`, `lager root set/unset/detect`, `lager status`.
+Im Web steht der Lager-Ordner im Fußbereich jeder Seite und lässt sich dort ändern (§7).
+
+**Echte Daten gehören nicht in den Projektordner.** Das Repository auf GitHub ist öffentlich,
+und der Ordner `lager/` im Projekt ist das Beispiel-Lager, das mit eingecheckt wird. Das
+eigene Lager liegt deshalb außerhalb, zum Beispiel unter `D:\Lager`.
 
 ## 5. Kategorien (anlegbar, nicht fix)
 
@@ -134,16 +139,45 @@ Regeln (D9):
 - **Dateiart nach Endung:** `datasheet` (pdf), `cad3d`, `kicad`, `image`, sonst `other`.
   Die Zuordnung ist in `config.yaml` unter `file_kinds` änderbar (P6).
 - **Nicht im Index:** `part.yaml` selbst, Dateien und Ordner mit `.`-Präfix, `Thumbs.db`, `desktop.ini`.
-- **Wann der Index aktuell ist:** nach jedem `rebuild`, nach `part new`, `category add/remove`
-  (falls schon ein Index existiert) und bei jedem Start des Servers. Wer Dateien im Explorer
-  ändert, liest danach neu ein: `lager index rebuild` oder Knopf „Ordner neu einlesen“ im Web.
+- **Wann der Index aktuell ist:** nach jedem `rebuild`, nach `part new`, `part attach`,
+  `category add/remove` (falls schon ein Index existiert), nach jedem Anlegen und Hochladen
+  im Web und bei jedem Start des Servers. Wer Dateien im Explorer ändert, liest danach neu
+  ein: `lager index rebuild` oder Knopf „Ordner neu einlesen“ im Web.
+- **Nach einem Programm-Update:** Der Index merkt sich, welche Version ihn aufgebaut hat
+  (`meta.generator`). Passt sie nicht zur laufenden Version, wird er beim ersten Zugriff
+  von selbst neu aufgebaut.
 - **IDs sind nicht stabil:** `parts.id` wird bei jedem Neuaufbau neu vergeben. Dauerhafte
   Verweise (später `movements`) nutzen `parts.rel_path`.
 
 Suche (`lager part search`, `/api/v1/parts`, Web): Jeder Begriff muss vorkommen, Groß- und
 Kleinschreibung sowie Umlaute spielen keine Rolle, Teilwörter zählen (`44n` findet `IRLZ44N`).
-Durchsucht werden Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie, Unterkategorie und
-Lagerfach. Treffer, deren Bezeichnung mit dem ersten Begriff beginnt, stehen vorn.
+Durchsucht werden Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie, Unterkategorie,
+Lagerfach und die Dateinamen im Bauteil-Ordner (`pdf` findet also alle Bauteile mit PDF).
+Treffer, deren Bezeichnung mit dem ersten Begriff beginnt, stehen vorn.
+
+## 6b. Bauteile und Dateien aufnehmen (Phase 1 — umgesetzt)
+
+Drei Wege führen zum selben Ergebnis im Ordner: die CLI, die Web-Oberfläche und der Explorer.
+
+| Aufgabe | CLI | Web |
+|---|---|---|
+| Bauteil anlegen | `lager part new <BEZEICHNUNG> -c <kategorie> …` | Knopf „+“ oben, Formular „Neues Bauteil“ |
+| Kategorie anlegen | `lager category add <id> --label "…"` | im Formular „Neues Bauteil“, Feld „neue Kategorie“ |
+| Dateien hinzufügen | `lager part attach <BEZEICHNUNG> <datei> …` (`--move` verschiebt) | Bauteilseite, „Dateien hinzufügen“ |
+| Datenblatt öffnen | `lager part open <BEZEICHNUNG>` (`--file`, `--folder`) | Knopf „PDF“ in der Trefferliste |
+
+Regeln:
+
+- **Bezeichnung ist im ganzen Lager eindeutig (D11).** Dieselbe Bezeichnung in zwei Kategorien
+  wird abgelehnt, weil die Adresse `/p/<BEZEICHNUNG>` und später das QR-Etikett darauf zeigen.
+- **Dateien werden nach Art einsortiert (D12):** PDFs und unbekannte Arten direkt in den
+  Bauteil-Ordner, 3D-Modelle nach `3d/`, KiCad-Dateien nach `kicad/`, Bilder nach `images/`.
+- **Nichts wird überschrieben:** Gibt es den Dateinamen schon, bekommt die neue Datei eine
+  Nummer (`datasheet-2.pdf`).
+- **Dateinamen werden bereinigt:** Pfadanteile und unter Windows verbotene Zeichen fallen weg.
+  `part.yaml` lässt sich nicht hochladen. Ein Upload ist auf 200 MB je Datei begrenzt.
+- **Vorhandener Ordner wird übernommen:** Liegt schon ein Ordner mit PDFs, aber ohne
+  `part.yaml` vor, legt „Bauteil anlegen“ nur die `part.yaml` dazu.
 
 ## 7. Architektur (Zielbild)
 
@@ -172,27 +206,50 @@ Schnittstellen:
 - **MCP** (Phase 4): Tools `search_parts, get_part, create_part, …` für die Datenpflege
   durch lokale Agenten
 
-### Stand des Server-Grundgerüsts (2026-11-12)
+### Stand des Servers (2026-11-12)
 
 Start: `lager serve` (Adresse und Port aus `config.yaml`, Standard `127.0.0.1:8080`).
 Für das Handy im WLAN: `lager serve --host 0.0.0.0`, dann am Handy `http://<IP-des-PCs>:8080`.
+Nach einem Update des Programms den Server neu starten.
 
 | Adresse | Zweck |
 |---|---|
 | `/` | Suche, Kategorien, Trefferliste; Knopf „PDF“ öffnet das Datenblatt direkt |
-| `/p/<BEZEICHNUNG>` | Bauteilseite: Datenblätter, Angaben, weitere Dateien |
+| `/p/<BEZEICHNUNG>` | Bauteilseite: Datenblätter, Angaben, weitere Dateien, „Dateien hinzufügen“ |
+| `/neu` | Formular „Neues Bauteil“, auf Wunsch mit neuer Kategorie und Dateien |
 | `/files/<pfad wie im Lager-Ordner>` | Datei ausliefern; PDF und Bilder öffnet der Browser, alles andere wird geladen |
+| Fußbereich jeder Seite | Zahl der Bauteile und Dateien, Zeitpunkt des Einlesens, Lager-Ordner, „Ordner neu einlesen“, „Lager-Ordner ändern“ |
 | `/api/v1/parts?q=…`, `/api/v1/parts/<BEZEICHNUNG>` | Suche und Bauteil als JSON |
+| `POST /api/v1/parts`, `POST /api/v1/parts/<BEZEICHNUNG>/files`, `POST /api/v1/categories` | Bauteil anlegen, Dateien hochladen, Kategorie anlegen |
 | `/api/v1/categories`, `/api/v1/index`, `/api/v1/health` | Kategorien, Zustand des Index, Lebenszeichen |
-| `POST /api/v1/index/rebuild` | Ordner neu einlesen (mit `X-Lager-Token`, falls `write_token` gesetzt) |
+| `POST /api/v1/index/rebuild` | Ordner neu einlesen |
 | `/docs`, `/openapi.json` | API-Beschreibung, von FastAPI erzeugt |
+
+**„Ordner neu einlesen“** baut den Such-Index aus den Ordnern neu auf (§6a). Nötig ist das nur,
+wenn Dateien oder Ordner am Programm vorbei geändert wurden, etwa im Explorer. Danach zeigt
+die Seite eine Rückmeldung: wie viele Bauteile, Dateien und Kategorien gefunden wurden, wie
+lange es gedauert hat, und welche Hinweise es gab (z. B. eine unlesbare `part.yaml`).
+
+**„Lager-Ordner ändern“** stellt den laufenden Server auf einen anderen Ordner um und trägt
+ihn in die `config.yaml` ein; deren Kommentare bleiben erhalten. Mit Häkchen wird in einem
+leeren oder neuen Ordner ein Lager angelegt. Ein Ordner mit fremdem Inhalt wird nie verändert.
+
+Schutz (D13):
+
+- **Lager-Ordner ändern geht nur an dem PC, auf dem der Server läuft** (Aufruf über
+  `127.0.0.1` oder `localhost`). Andere Geräte sehen den Pfad nur.
+- **Ohne `write_token`** darf jedes Gerät im WLAN Bauteile anlegen, Dateien hochladen und
+  neu einlesen. Das ist für das private Netz so gewollt.
+- **Mit `write_token`** verlangen alle schreibenden Aufrufe das Kopffeld `X-Lager-Token`.
+  Die Web-Seiten blenden die Schreib-Funktionen dann aus; ein Anmelden im Browser gibt es noch nicht.
+- **SVG-Dateien** werden nicht im Browser geöffnet, sondern geladen, weil sie Skripte enthalten können.
 
 - Ausgeliefert werden nur Dateien, die im Index stehen. Andere Pfade ergeben „nicht gefunden“.
 - CLI (`--json`) und API geben dieselben Daten aus (D10): Datensätze mit den englischen
   Feldnamen aus Schema und `part.yaml` (`part`, `name`, `files`, …), Rahmenfelder wie in der
   bisherigen CLI auf Deutsch (`suche`, `anzahl`, `treffer`, `teile`, `warnungen`).
-- Noch nicht enthalten: Ändern von Daten über das Web, Suche während des Tippens (HTMX),
-  QR-Etiketten, HTTPS.
+- Noch nicht enthalten: vorhandene Bauteile über das Web bearbeiten oder löschen, Suche
+  während des Tippens (HTMX), QR-Etiketten, HTTPS.
 
 ### Mobile App = Web-Oberfläche (D8)
 
@@ -286,8 +343,8 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 |---|---|---|
 | 0.1 | Konfiguration, bewegbarer Root, Auto-Erkennung, Kategorien, part.yaml, CLI-Grundgerüst, Tests | ✅ |
 | 0.2 | SQLite-Index über Bauteile und ihre Dateien (Datenblätter) + `lager index rebuild` | ✅ |
-| 1 | Suche und Datenblätter in der CLI: Bauteil suchen, Dateien anzeigen, neues Datenblatt einem Bauteil zuordnen | Grundgerüst: Suche fertig (`lager part search`). Offen: Datenblatt zuordnen, Suche in Dateinamen |
-| 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | Grundgerüst: API, Dateiauslieferung, Suche und Bauteilseite laufen (`lager serve`). Offen: am echten Handy im WLAN prüfen, Daten ändern, Suche beim Tippen |
+| 1 | Suche und Datenblätter in der CLI: Bauteil suchen, Dateien anzeigen, neues Datenblatt einem Bauteil zuordnen | ✅ `part search` (auch in Dateinamen), `part attach`, `part open` (§6a, §6b) |
+| 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | Läuft: Suche, Bauteilseite, Dateien, Bauteil anlegen, Dateien hochladen, Lager-Ordner ändern, Rückmeldung beim Einlesen. Offen: am echten Handy im WLAN prüfen, vorhandene Bauteile bearbeiten, Suche beim Tippen, Anmelden bei gesetztem `write_token` |
 | 3 | Handy-Komfort: QR-Etiketten (PDF); später HTTPS mit Kamera-Scanner und Startbildschirm (PWA) | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
 | 5 | Mengen ein- und ausbuchen mit Verlauf (`movements`) | offen |
@@ -295,6 +352,45 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 
 Die Reihenfolge folgt den Prioritäten aus §1 und wurde am 2026-11-12 neu geordnet (D7).
 Vorher standen Mengenbuchungen und MCP vor der Handy-Nutzung.
+
+### Ideen für später (noch nicht eingeplant)
+
+Zwei Wünsche von Lukas vom 2026-11-12, mit einer ersten Einschätzung. Beide sind machbar;
+über Reihenfolge und Umfang ist noch nicht entschieden.
+
+**A. Bauteil automatisch ergänzen lassen.** Nach dem Anlegen sucht ein Helfer Datenblatt,
+Beschreibung, Hersteller und Kennwerte und trägt sie ein.
+
+| Stufe | Inhalt | Aufwand | Verlässlichkeit |
+|---|---|---|---|
+| A1 | Nachschlagen bei einem Bauteile-Händler über dessen Schnittstelle (z. B. Mouser, Digi-Key): Beschreibung, Hersteller, Link zum Datenblatt, PDF laden. Ohne KI. | klein bis mittel | hoch, die Daten kommen strukturiert vom Händler |
+| A2 | Lokales Modell (LM Studio) formuliert die Beschreibung auf Deutsch, schlägt Tags und Kategorie vor und liest Kennwerte aus dem PDF. | mittel | hängt stark vom Modell ab; Vorschläge müssen bestätigt werden |
+| A3 | Agent sucht selbstständig im Netz, auch nach 3D-Modellen und KiCad-Dateien. | groß | gering: falsche Treffer bei ähnlichen Bezeichnungen, Quellen mit Anmeldung und Nutzungsbedingungen |
+
+- Technisch passt es: LM Studio bietet lokal eine OpenAI-kompatible Schnittstelle mit
+  Werkzeug-Aufrufen und kann MCP-Server einbinden. Der Lager-Server würde nach dem Anlegen
+  einen Auftrag im Hintergrund starten und den Stand am Bauteil zeigen.
+- Voraussetzungen: ein Händler-Zugang (kostenloser Schlüssel) für A1; für A2 ein Schritt
+  „Vorschlag prüfen und übernehmen“, damit keine erfundenen Werte im Lager landen; je Feld
+  die Quelle merken.
+- Empfehlung: A1 zuerst, A2 darauf aufbauen, A3 vorerst nicht.
+
+**B. KiCad-Dateien als Bibliothek bereitstellen.** Die im Lager abgelegten Footprints und
+Symbole erscheinen direkt in KiCad.
+
+| Stufe | Inhalt | Aufwand |
+|---|---|---|
+| B1 | Ein Befehl sammelt alle `.kicad_mod` in einen Ordner `Lager.pretty` und alle Symbole in eine `Lager.kicad_sym`. Beide werden einmal in KiCad eingetragen; nach jedem Einlesen sind sie aktuell. | klein bis mittel |
+| B2 | Pfade der 3D-Modelle in den Footprints auf das Lager umschreiben; Symbolfelder mit Datenblatt-Link, Hersteller und Lagerfach füllen. | mittel |
+| B3 | Der Lager-Server als „HTTP-Bibliothek“ für KiCad: Bauteile erscheinen mit ihren Angaben im Symbol-Auswahlfenster. | mittel |
+
+- B3 nutzt eine von KiCad vorgesehene Schnittstelle: KiCad fragt Kategorien und Bauteile
+  über HTTP ab. Eine solche Bibliothek enthält selbst keine Symbole und Footprints, sondern
+  verweist auf normale KiCad-Bibliotheken. B1 bleibt also die Grundlage, und je Bauteil muss
+  hinterlegt sein, welches Symbol und welcher Footprint dazugehört (neue Felder in `part.yaml`).
+- Offene Punkte: gleiche Dateinamen in mehreren Bauteilen (z. B. `TO-220.kicad_mod`),
+  Zusammenführen mehrerer Symboldateien, getestete KiCad-Version.
+- Empfehlung: B1 ist ein guter, abgeschlossener Schritt; B3 erst, wenn B1 läuft.
 
 ## 11. Entscheidungsprotokoll
 
@@ -311,3 +407,6 @@ Vorher standen Mengenbuchungen und MCP vor der Handy-Nutzung.
 | D8 | 2026-11-12 | Mobile App = Web-Oberfläche des Servers, zuerst fürs Handy gestaltet; keine eigene App (s. §7) |
 | D9 | 2026-11-12 | Index in `<lager_root>/.lager/parts.db`; Neuaufbau in einer Transaktion; Warnungen statt Abbruch; Dateiarten einstellbar; IDs nicht stabil (s. §6a) |
 | D10 | 2026-11-12 | CLI (`--json`) und REST-API geben dieselben Daten aus; Datensätze mit englischen Feldnamen, Rahmenfelder deutsch (s. §7) |
+| D11 | 2026-11-12 | Die Bezeichnung eines Bauteils ist im ganzen Lager eindeutig, nicht nur je Kategorie (s. §6b) |
+| D12 | 2026-11-12 | Aufgenommene Dateien werden nach Art einsortiert und überschreiben nie eine vorhandene Datei (s. §6b) |
+| D13 | 2026-11-12 | Lager-Ordner im Web nur am Server-PC änderbar; übrige Schreibwege ohne `write_token` im WLAN offen (s. §7) |

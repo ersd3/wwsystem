@@ -119,3 +119,79 @@ def test_neues_bauteil_landet_im_vorhandenen_index(run):
 def test_neues_bauteil_legt_keinen_index_an(run, lager_voll):
     assert run("part", "new", "BC547", "-c", "mosfets").exit_code == 0
     assert not db.db_path(lager_voll).exists()
+
+
+# ------------------------------------------------- Dateien aufnehmen
+
+
+def test_part_attach_kopiert_und_sortiert(run, lager_voll, tmp_path):
+    sheet = tmp_path / "irf540n.pdf"
+    sheet.write_bytes(b"%PDF")
+    model = tmp_path / "TO-220.step"
+    model.write_bytes(b"step")
+    run("index", "rebuild")
+
+    result = run("part", "attach", "irf540n", str(sheet), str(model), "--json")
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["teil"] == "IRF540N"
+    assert data["hinzugefuegt"] == ["irf540n.pdf", "3d/TO-220.step"]
+    assert sheet.exists()  # kopiert, nicht verschoben
+    assert (lager_voll / "mosfets" / "IRF540N" / "3d" / "TO-220.step").is_file()
+
+    found = json.loads(run("part", "search", "irf540n", "--json").stdout)["treffer"][0]
+    assert [f["path"] for f in found["files"]] == ["irf540n.pdf", "3d/TO-220.step"]
+
+
+def test_part_attach_verschieben(run, lager_voll, tmp_path):
+    sheet = tmp_path / "ds.pdf"
+    sheet.write_bytes(b"%PDF")
+    assert run("part", "attach", "IRF540N", str(sheet), "--move").exit_code == 0
+    assert not sheet.exists()
+    assert (lager_voll / "mosfets" / "IRF540N" / "ds.pdf").read_bytes() == b"%PDF"
+
+
+@pytest.fixture()
+def opened(monkeypatch):
+    """Fängt ab, was `part open` mit dem Standardprogramm öffnen würde."""
+    calls = []
+    monkeypatch.setattr(cli, "_open_with_default_app", calls.append)
+    return calls
+
+
+def test_part_open_oeffnet_das_datenblatt(run, lager_voll, opened):
+    result = run("part", "open", "irlz44n", "--json")
+    assert result.exit_code == 0
+    expected = lager_voll / "mosfets" / "IRLZ44N" / "datasheet.pdf"
+    assert opened == [expected]
+    assert json.loads(result.stdout) == {"teil": "IRLZ44N", "geoeffnet": str(expected)}
+
+
+def test_part_open_datei_und_ordner(run, lager_voll, opened):
+    folder = lager_voll / "mosfets" / "IRLZ44N"
+    assert run("part", "open", "IRLZ44N", "--file", "3d/TO-220.step").exit_code == 0
+    assert run("part", "open", "IRLZ44N", "--folder").exit_code == 0
+    assert opened == [(folder / "3d" / "TO-220.step").resolve(), folder]
+
+
+def test_part_open_fehler(run, opened):
+    ohne = run("part", "open", "IRF540N")
+    assert ohne.exit_code == 1
+    assert "Kein Datenblatt" in ohne.stderr
+    assert run("part", "open", "GIBTSNICHT").exit_code == 1
+    assert run("part", "open", "IRLZ44N", "--file", "gibtsnicht.pdf").exit_code == 1
+    ausbruch = run("part", "open", "IRLZ44N", "--file", "../IRF540N/part.yaml")
+    assert ausbruch.exit_code == 1
+    assert opened == []
+
+
+def test_part_attach_fehler(run, lager_voll, tmp_path):
+    sheet = tmp_path / "ds.pdf"
+    sheet.write_bytes(b"%PDF")
+    unknown = run("part", "attach", "GIBTSNICHT", str(sheet))
+    assert unknown.exit_code == 1
+    assert "Teil nicht gefunden" in unknown.stderr
+    missing = run("part", "attach", "IRF540N", str(tmp_path / "fehlt.pdf"))
+    assert missing.exit_code == 1
+    assert "Datei nicht gefunden" in missing.stderr
+    assert not (lager_voll / "mosfets" / "IRF540N" / "ds.pdf").exists()

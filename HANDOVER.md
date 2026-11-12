@@ -3,7 +3,7 @@
 **To:** Claude (Nachfolger-Agent)  
 **From:** LM Studio Bionic Agent, Session 2026-11-11  
 **Fortgeführt von:** Claude (Claude Code), seit 2026-11-12  
-**Status (2026-11-12):** Phase 0.1 und 0.2 sind umgesetzt und getestet (siehe §5). Zusätzlich steht ein lauffähiges Grundgerüst für Phase 1 (Suche in der CLI) und Phase 2 (Server mit REST-API und Handy-Seiten). Was je Phase noch offen ist, steht in §7.
+**Status (2026-11-12, Version 0.3.0):** Phase 0.1, 0.2 und 1 sind umgesetzt und getestet (siehe §5). Phase 2 (Server mit REST-API und Handy-Seiten) läuft, einschließlich Bauteile anlegen, Dateien hochladen und Lager-Ordner ändern. Was je Phase noch offen ist, steht in §7.
 
 ---
 
@@ -106,11 +106,16 @@ Wichtig: `_require_root()` → config-Root falls gültig, sonst Auto-Erkennung, 
 Einzelheiten in `KONZEPT.md` §6a (Index) und §7 (Server). Kurzfassung:
 
 - **Index:** `<lager_root>/.lager/parts.db`, Schema in `src/lager/schema.sql` (reines SQL, D6). Tabellen `categories`, `parts`, `part_aliases`, `part_tags`, `files`, `meta`. Abgeleitet, nicht in Git (`.gitignore`).
-- **Befehle:** `lager index rebuild`, `lager index status`, `lager part search [begriff] [--category ID] [--limit N]`, `lager serve [--host H] [--port P]`.
-- **Aktualität:** Der Index wird neu aufgebaut bei `index rebuild`, nach `part new` und `category add/remove` (nur wenn schon ein Index existiert) und bei jedem Serverstart. `part search` baut ihn auf, falls er fehlt.
+- **Befehle:** `lager index rebuild`, `lager index status`, `lager part search [begriff] [--category ID] [--limit N]`, `lager part attach <teil> <datei>… [--move]`, `lager part open <teil> [--file PFAD | --folder]`, `lager serve [--host H] [--port P]`.
+- **Aktualität:** Der Index wird neu aufgebaut bei `index rebuild`, nach `part new`, `part attach` und `category add/remove` (nur wenn schon ein Index existiert), nach jedem Schreiben über den Server und bei jedem Serverstart. `part search` baut ihn auf, falls er fehlt oder von einer anderen Programmversion stammt (`meta.generator`, `indexer.ensure_index`).
+- **Suche:** über `parts.search_text` (Kleinbuchstaben): Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie, Unterkategorie, Lagerfach und Dateipfade im Bauteil-Ordner.
+- **Bauteile und Dateien aufnehmen:** `parts.create_part` verlangt eine im ganzen Lager eindeutige Bezeichnung (D11) und lehnt Kategorien ab, die aus dem Lager herausführen. `files.add_file` sortiert nach Art ein (`3d/`, `kicad/`, `images/`, sonst Bauteil-Ordner), bereinigt den Dateinamen und überschreibt nie (D12).
 - **JSON (D10):** CLI und REST-API geben dieselben dicts aus (`search.py`, `indexer.py`). Datensätze mit englischen Feldnamen (`part`, `name`, `category`, `path`, `files[path, kind, ext, size, mtime]`), Rahmenfelder deutsch (`suche`, `anzahl`, `treffer`, `teile`, `dateien`, `warnungen`).
-- **Server:** FastAPI in `src/lager/server/app.py` (`create_app(root, cfg)`), Vorlagen in `server/templates`, Gestaltung in `server/static/style.css`. Routen: `/`, `/p/<teil>`, `/files/<pfad>`, `/api/v1/{health,parts,parts/<teil>,categories,index,index/rebuild}`, `/docs`.
-- **Sicherheit:** `/files/...` liefert nur Dateien aus, die im Index stehen. Schreibende Aufrufe verlangen `X-Lager-Token`, falls `write_token` gesetzt ist.
+- **Server:** FastAPI in `src/lager/server/app.py` (`create_app(root, cfg, config_path)`), Vorlagen in `server/templates`, Gestaltung in `server/static/style.css`. Lesend: `/`, `/p/<teil>`, `/neu`, `/files/<pfad>`, `/api/v1/{health,parts,parts/<teil>,categories,index}`, `/docs`. Schreibend: `POST /neu`, `POST /p/<teil>/dateien`, `POST /index/rebuild`, `POST /einstellungen/lager-ordner`, `POST /api/v1/{parts,parts/<teil>/files,categories,index/rebuild}`.
+- **Rückmeldung beim Einlesen:** `_rebuild` merkt sich das Ergebnis in `app.state.last_rebuild`; nach der Weiterleitung auf `/?hinweis=eingelesen` (bzw. `ordner`) zeigt die Seite Zahlen und Warnungen.
+- **Sicherheit (D13):** `/files/...` liefert nur Dateien aus, die im Index stehen; SVG nur als Download. Schreibende Aufrufe verlangen `X-Lager-Token`, falls `write_token` gesetzt ist; die Seiten blenden die Schreib-Funktionen dann aus. Den Lager-Ordner ändert nur ein Aufruf vom Server-PC selbst (`is_local`). `switch_root` schreibt den Pfad mit `set_lager_root` in die `config.yaml`, ohne deren Kommentare zu verlieren.
+- **Leeres Dateifeld:** Browser schicken ein leeres `<input type=file>` als leeren Text mit. Die Formular-Routen nehmen deshalb `List[Union[UploadFile, str]]` an (`FormFiles`).
+- **Tests und die echte config.yaml:** Server-Tests übergeben immer eine eigene `config_path` (Fixture in `tests/conftest.py`), damit ein Pfadwechsel im Test nie die Projekt-Konfiguration ändert.
 - **SQLite im Server:** Jede Anfrage öffnet ihre Verbindung selbst (`open_index`), weil eine SQLite-Verbindung nur in dem Thread benutzt werden darf, der sie geöffnet hat.
 
 ---
@@ -136,6 +141,7 @@ src/lager/schema.sql            # Index-Schema, reines SQL
 src/lager/db.py                 # Index öffnen, Schema anlegen, Version prüfen
 src/lager/indexer.py            # Ordner einlesen, Index aufbauen, Status
 src/lager/search.py             # Suche und Abfragen auf dem Index
+src/lager/files.py              # Dateien in Bauteil-Ordner aufnehmen
 src/lager/server/__init__.py
 src/lager/server/app.py         # FastAPI: REST-API, Dateien, Handy-Seiten
 src/lager/server/schemas.py     # Antwort-Formate der API
@@ -145,7 +151,9 @@ tests/conftest.py               # Test-Lager mit Bauteilen und Dateien
 tests/test_core.py
 tests/test_cli.py
 tests/test_index.py
-tests/test_server.py
+tests/test_server.py            # Server lesend
+tests/test_server_write.py      # Server schreibend: anlegen, hochladen, Pfad ändern
+tests/test_files.py             # Dateien aufnehmen, eindeutige Bezeichnung, Pfad in config.yaml
 lager/categories.yaml
 lager/_vorlage/part.yaml
 lager/mosfets/IRLZ44N/part.yaml
@@ -187,6 +195,24 @@ lager/widerstaende/223-0.1W/part.yaml
 - **Noch nicht geprüft:** Zugriff von einem echten Handy im WLAN (`lager serve --host 0.0.0.0`), ein Lager mit
   mehreren tausend Bauteilen (Dauer des Neuaufbaus), Linux
 
+**2026-11-12, Phase 1 und Schreiben im Web (Version 0.3.0)**
+- `pytest tests -q` → **132/132 PASS** (Kern 12, CLI 16, Index und Suche 26, Dateien 26, Server lesend 20, Server schreibend 32)
+- Im Browser bei 375 px Breite mit einem Wegwerf-Lager geprüft: Formular „Neues Bauteil“ abgeschickt (ohne Datei),
+  zwei Dateien hochgeladen (PDF in den Bauteil-Ordner, STEP nach `3d/`), „Ordner neu einlesen“ zeigt die Rückmeldung,
+  „Lager-Ordner ändern“ klappt auf, kein seitliches Scrollen
+- **Gefunden und behoben:** Ein leeres Dateifeld im Formular führte zu Fehler 422. Ein langer Lager-Pfad
+  ragte am Handy über den Rand.
+- **Noch nicht geprüft:** echtes Handy im WLAN, Dateiauswahl über den Dateidialog des Browsers (nur per Skript
+  geprüft), `lager part open` mit echtem Standardprogramm (im Test abgefangen), großes Lager, Linux
+
+**Achtung beim Neuinstallieren:** Läuft noch ein `lager serve`, ist `.venv\Scripts\lager.exe` gesperrt und
+`pip install -e .` bricht ab. Der Import funktioniert danach trotzdem (editierbare Installation), nur der
+alte Starter bleibt liegen. Sauber: Server beenden, dann installieren.
+
+**Daten von Lukas im Beispiel-Lager:** Am 2026-11-12 hat Lukas über das Web die Kategorie `transistoren` und
+das Bauteil `BC525` im Projektordner `lager/` angelegt. Das Repository ist öffentlich; vor einem Commit fragen,
+ob diese Daten mit hochgeladen werden sollen.
+
 Python 3.14 ist seit 2026-11-12 für das Benutzerkonto installiert; das venv liegt in `.venv` (nicht in Git).
 
 Sample-Daten: Menge = 0 mit Hinweis „Beispiel-Bauteil — Menge 0, bitte korrigieren“. **Keine realen Bestände erfinden.**
@@ -221,8 +247,8 @@ Smoke:
 Reihenfolge am 2026-11-12 nach den Prioritäten von Lukas neu geordnet (D7). Maßgeblich ist die Tabelle in `KONZEPT.md` §10.
 
 **0.2 Index (SQLite) — fertig:** `<root>/.lager/parts.db` mit Tabellen `parts` und `files` (Datenblätter und andere Dateien je Bauteil). `lager index rebuild` idempotent. Schema nach D6 als reines SQL (`schema.sql`), sprachneutral. Die Tabelle `movements` kommt erst in Phase 5 und wird dann nie neu aufgebaut.  
-**1 Suche + Datenblätter (CLI):** `lager part search <begriff>` case-insensitive über part/aliases/name/manufacturer/tags/category; Dateien eines Bauteils anzeigen; neues Datenblatt einem Bauteil zuordnen. Akzeptanz: `search irlz44n` findet IRLZ44N und zeigt dessen Datenblatt. **Stand:** Suche fertig. Offen: Datenblatt einem Bauteil zuordnen (`part attach` o. ä.), Suche auch in Dateinamen.  
-**2 Server + Web fürs Handy:** FastAPI, OpenAPI, `/api/v1/...`, Jinja2+HTMX Deutsch, zuerst fürs Handy gestaltet, Dateiauslieferung, optional `X-Lager-Token`. Das ist zugleich die mobile App (D8). Akzeptanz: Am Handy im WLAN funktioniert Suche → Bauteilseite → PDF öffnen. **Stand:** Grundgerüst läuft (API, Dateien, Suche, Bauteilseite; ohne HTMX). Offen: am echten Handy prüfen, Daten über das Web ändern, Suche beim Tippen.  
+**1 Suche + Datenblätter (CLI):** `lager part search <begriff>` case-insensitive über part/aliases/name/manufacturer/tags/category; Dateien eines Bauteils anzeigen; neues Datenblatt einem Bauteil zuordnen. Akzeptanz: `search irlz44n` findet IRLZ44N und zeigt dessen Datenblatt. **Stand: fertig.** `part search` (auch in Dateinamen), `part attach`, `part open`.  
+**2 Server + Web fürs Handy:** FastAPI, OpenAPI, `/api/v1/...`, Jinja2+HTMX Deutsch, zuerst fürs Handy gestaltet, Dateiauslieferung, optional `X-Lager-Token`. Das ist zugleich die mobile App (D8). Akzeptanz: Am Handy im WLAN funktioniert Suche → Bauteilseite → PDF öffnen. **Stand:** Läuft mit Suche, Bauteilseite, Dateien, Bauteil anlegen, Dateien hochladen, Lager-Ordner ändern und Rückmeldung beim Einlesen (ohne HTMX). Offen: am echten Handy prüfen, vorhandene Bauteile bearbeiten oder löschen, Suche beim Tippen, Anmelden im Browser bei gesetztem `write_token`.  
 **3 Handy-Komfort:** `lager qr print <teil>` PDF mit QR zu `public_url/p/<id>`. Später HTTPS, damit ein Kamera-Scanner in der Seite und der Startbildschirm (PWA) möglich werden. Akzeptanz: Handy-Kamera öffnet die Bauteilseite.  
 **4 MCP:** MCP-Server `lager mcp` (stdio) mit Tools `search_parts`, `get_part`, `create_part`, `update_part`, `list_categories`, `add_category`, `reindex` für die Datenpflege durch lokale Agenten. Akzeptanz: LM Studio kann MCP ansteuern.  
 **5 Mengen:** `lager stock in/out`, `lager stock list --low N`, Verlauf in `movements`, MCP-Tool `set_quantity`.  
@@ -953,4 +979,4 @@ notes: Beispiel-Bauteil aus der Projektanlegung (Menge 0, bitte korrigieren).
 
 ---
 
-*Ende HANDOVER. Nächste Aktion: mit Lukas den Server am echten Handy im WLAN prüfen, dann Phase 1 abschließen (Datenblatt zuordnen). Vor jedem Commit fragen.*
+*Ende HANDOVER. Nächste Aktion: mit Lukas den Server am echten Handy im WLAN prüfen und Phase 2 abschließen (Bauteile bearbeiten, Suche beim Tippen). Zwei Ideen für später stehen in `KONZEPT.md` §10: Bauteile automatisch ergänzen lassen, KiCad-Bibliothek. Vor jedem Commit fragen.*

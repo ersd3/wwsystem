@@ -3,6 +3,7 @@ PyYAML>=6.0
 fastapi>=0.110
 uvicorn>=0.27
 jinja2>=3.1
+python-multipart>=0.0.9
 # nur für Tests
 pytest>=7.0
 httpx2>=2.0
