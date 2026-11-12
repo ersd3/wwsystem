@@ -1,6 +1,6 @@
 # Konzept — Bauteile-Lagersystem ("Lager")
 
-Stand: 2026-11-12 · Status: Phase 0.1 umgesetzt und mit echtem Python geprüft · Als Nächstes: Phase 0.2 (SQLite-Index)
+Stand: 2026-11-12 · Status: Phase 0.1 und 0.2 umgesetzt · Grundgerüst für Suche (Phase 1) und Server mit Handy-Seiten (Phase 2) steht · Stand je Phase: §10
 
 ## 1. Ziel
 
@@ -111,6 +111,40 @@ notes: ""
 - `quantity` ist der Ist-Stand in `part.yaml`; jede Änderung erzeugt (ab Phase 5)
   zusätzlich einen Eintrag in der SQLite-Tabelle `movements` (historisch, mit Quelle)
 
+## 6a. Such-Index (SQLite, Phase 0.2 — umgesetzt)
+
+Der Index liegt unter `<lager_root>/.lager/parts.db` und wandert mit dem Lager. Er ist
+abgeleitet: Die Ordner bleiben die Quelle der Wahrheit (P1, P3). Das Schema steht als
+reines SQL in `src/lager/schema.sql` (D6).
+
+| Tabelle | Inhalt |
+|---|---|
+| `categories` | Ordner der ersten Ebene; `label` und Reihenfolge aus `categories.yaml`; `listed` = 0, wenn der Ordner dort fehlt |
+| `parts` | ein Bauteil je Ordner mit `part.yaml`: Bezeichnung, Kategorie, Unterkategorie, Pfad, Felder der `part.yaml`, Suchtext |
+| `part_aliases`, `part_tags` | Aliase und Tags, je eine Zeile |
+| `files` | Dateien im Bauteil-Ordner: Pfad, Art (`kind`), Endung, Größe, Änderungszeit |
+| `meta` | `built_at` (letzter Aufbau), `generator` |
+
+Regeln (D9):
+
+- **Neuaufbau:** `lager index rebuild` leert alle Tabellen und füllt sie neu, in einer
+  einzigen Transaktion. Schlägt er fehl, bleibt der alte Index erhalten. Beliebig oft ausführbar.
+- **Fehler in den Ordnern brechen nicht ab:** Eine unlesbare `part.yaml`, ein Bauteil ohne
+  Kategorie oder eine doppelte Bezeichnung erscheinen als Warnung im Ergebnis.
+- **Dateiart nach Endung:** `datasheet` (pdf), `cad3d`, `kicad`, `image`, sonst `other`.
+  Die Zuordnung ist in `config.yaml` unter `file_kinds` änderbar (P6).
+- **Nicht im Index:** `part.yaml` selbst, Dateien und Ordner mit `.`-Präfix, `Thumbs.db`, `desktop.ini`.
+- **Wann der Index aktuell ist:** nach jedem `rebuild`, nach `part new`, `category add/remove`
+  (falls schon ein Index existiert) und bei jedem Start des Servers. Wer Dateien im Explorer
+  ändert, liest danach neu ein: `lager index rebuild` oder Knopf „Ordner neu einlesen“ im Web.
+- **IDs sind nicht stabil:** `parts.id` wird bei jedem Neuaufbau neu vergeben. Dauerhafte
+  Verweise (später `movements`) nutzen `parts.rel_path`.
+
+Suche (`lager part search`, `/api/v1/parts`, Web): Jeder Begriff muss vorkommen, Groß- und
+Kleinschreibung sowie Umlaute spielen keine Rolle, Teilwörter zählen (`44n` findet `IRLZ44N`).
+Durchsucht werden Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie, Unterkategorie und
+Lagerfach. Treffer, deren Bezeichnung mit dem ersten Begriff beginnt, stehen vorn.
+
 ## 7. Architektur (Zielbild)
 
 ```
@@ -137,6 +171,28 @@ Schnittstellen:
 - **QR** (Phase 3): `http://<host>:<port>/p/<BEZEICHNUNG>` — jede Handy-Kamera öffnet die Seite
 - **MCP** (Phase 4): Tools `search_parts, get_part, create_part, …` für die Datenpflege
   durch lokale Agenten
+
+### Stand des Server-Grundgerüsts (2026-11-12)
+
+Start: `lager serve` (Adresse und Port aus `config.yaml`, Standard `127.0.0.1:8080`).
+Für das Handy im WLAN: `lager serve --host 0.0.0.0`, dann am Handy `http://<IP-des-PCs>:8080`.
+
+| Adresse | Zweck |
+|---|---|
+| `/` | Suche, Kategorien, Trefferliste; Knopf „PDF“ öffnet das Datenblatt direkt |
+| `/p/<BEZEICHNUNG>` | Bauteilseite: Datenblätter, Angaben, weitere Dateien |
+| `/files/<pfad wie im Lager-Ordner>` | Datei ausliefern; PDF und Bilder öffnet der Browser, alles andere wird geladen |
+| `/api/v1/parts?q=…`, `/api/v1/parts/<BEZEICHNUNG>` | Suche und Bauteil als JSON |
+| `/api/v1/categories`, `/api/v1/index`, `/api/v1/health` | Kategorien, Zustand des Index, Lebenszeichen |
+| `POST /api/v1/index/rebuild` | Ordner neu einlesen (mit `X-Lager-Token`, falls `write_token` gesetzt) |
+| `/docs`, `/openapi.json` | API-Beschreibung, von FastAPI erzeugt |
+
+- Ausgeliefert werden nur Dateien, die im Index stehen. Andere Pfade ergeben „nicht gefunden“.
+- CLI (`--json`) und API geben dieselben Daten aus (D10): Datensätze mit den englischen
+  Feldnamen aus Schema und `part.yaml` (`part`, `name`, `files`, …), Rahmenfelder wie in der
+  bisherigen CLI auf Deutsch (`suche`, `anzahl`, `treffer`, `teile`, `warnungen`).
+- Noch nicht enthalten: Ändern von Daten über das Web, Suche während des Tippens (HTMX),
+  QR-Etiketten, HTTPS.
 
 ### Mobile App = Web-Oberfläche (D8)
 
@@ -229,9 +285,9 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 | Phase | Inhalt | Status |
 |---|---|---|
 | 0.1 | Konfiguration, bewegbarer Root, Auto-Erkennung, Kategorien, part.yaml, CLI-Grundgerüst, Tests | ✅ |
-| 0.2 | SQLite-Index über Bauteile und ihre Dateien (Datenblätter) + `lager index rebuild` | als Nächstes |
-| 1 | Suche und Datenblätter in der CLI: Bauteil suchen, Dateien anzeigen, neues Datenblatt einem Bauteil zuordnen | offen |
-| 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | offen |
+| 0.2 | SQLite-Index über Bauteile und ihre Dateien (Datenblätter) + `lager index rebuild` | ✅ |
+| 1 | Suche und Datenblätter in der CLI: Bauteil suchen, Dateien anzeigen, neues Datenblatt einem Bauteil zuordnen | Grundgerüst: Suche fertig (`lager part search`). Offen: Datenblatt zuordnen, Suche in Dateinamen |
+| 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | Grundgerüst: API, Dateiauslieferung, Suche und Bauteilseite laufen (`lager serve`). Offen: am echten Handy im WLAN prüfen, Daten ändern, Suche beim Tippen |
 | 3 | Handy-Komfort: QR-Etiketten (PDF); später HTTPS mit Kamera-Scanner und Startbildschirm (PWA) | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
 | 5 | Mengen ein- und ausbuchen mit Verlauf (`movements`) | offen |
@@ -253,3 +309,5 @@ Vorher standen Mengenbuchungen und MCP vor der Handy-Nutzung.
 | D6 | 2026-11-12 | Sprachneutrale Datenhaltung: Datenbank und Dateien ohne Python-Spezifisches (s. §8) |
 | D7 | 2026-11-12 | Prioritäten: private Nutzung; Datenblätter finden und einlesen vor Mengen; Roadmap neu geordnet (s. §1, §10) |
 | D8 | 2026-11-12 | Mobile App = Web-Oberfläche des Servers, zuerst fürs Handy gestaltet; keine eigene App (s. §7) |
+| D9 | 2026-11-12 | Index in `<lager_root>/.lager/parts.db`; Neuaufbau in einer Transaktion; Warnungen statt Abbruch; Dateiarten einstellbar; IDs nicht stabil (s. §6a) |
+| D10 | 2026-11-12 | CLI (`--json`) und REST-API geben dieselben Daten aus; Datensätze mit englischen Feldnamen, Rahmenfelder deutsch (s. §7) |

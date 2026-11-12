@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ teil.part if teil else "Nicht gefunden" }} – Lager{% endblock %}
+{% block main %}
+  {% if not teil %}
+  <p class="empty">Kein Bauteil mit der Bezeichnung „{{ gesucht }}“ gefunden.</p>
+  <p><a href="/?q={{ gesucht | urlencode }}">Nach „{{ gesucht }}“ suchen</a></p>
+  {% else %}
+  <article class="detail">
+    <h1>{{ teil.part }}</h1>
+    {% if teil.name %}<p class="lead">{{ teil.name }}</p>{% endif %}
+
+    {% set sheets = teil.files | selectattr("kind", "equalto", "datasheet") | list %}
+    {% set others = teil.files | rejectattr("kind", "equalto", "datasheet") | list %}
+
+    <section>
+      <h2>Datenblätter</h2>
+      {% if sheets %}
+      <ul class="files">
+        {% for f in sheets %}
+        <li>
+          <a class="file primary" href="/files/{{ (teil.path ~ '/' ~ f.path) | urlencode }}" target="_blank" rel="noopener">
+            <span class="file-name">{{ f.path }}</span>
+            <span class="file-meta">PDF öffnen · {{ f.size | filesize }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="empty">Noch kein Datenblatt im Ordner.</p>
+      {% endif %}
+    </section>
+
+    <section>
+      <h2>Angaben</h2>
+      <dl>
+        <dt>Kategorie</dt>
+        <dd><a href="/?kategorie={{ teil.category | urlencode }}">{{ teil.category_label }}</a>{% if teil.subcategory %} / {{ teil.subcategory }}{% endif %}</dd>
+        {% if teil.manufacturer %}<dt>Hersteller</dt><dd>{{ teil.manufacturer }}</dd>{% endif %}
+        {% if teil.location %}<dt>Lagerfach</dt><dd>{{ teil.location }}</dd>{% endif %}
+        <dt>Menge</dt><dd>{{ teil.quantity }} {{ teil.unit }}</dd>
+        {% if teil.aliases %}<dt>Aliase</dt><dd>{{ teil.aliases | join(", ") }}</dd>{% endif %}
+        {% if teil.tags %}
+        <dt>Tags</dt>
+        <dd>{% for tag in teil.tags %}<a class="tag" href="/?q={{ tag | urlencode }}">{{ tag }}</a> {% endfor %}</dd>
+        {% endif %}
+        {% if teil.notes %}<dt>Notizen</dt><dd>{{ teil.notes }}</dd>{% endif %}
+        <dt>Ordner</dt><dd class="path">{{ teil.path }}</dd>
+      </dl>
+    </section>
+
+    {% if others %}
+    <section>
+      <h2>Weitere Dateien</h2>
+      <ul class="files">
+        {% for f in others %}
+        <li>
+          <a class="file" href="/files/{{ (teil.path ~ '/' ~ f.path) | urlencode }}">
+            <span class="file-name">{{ f.path }}</span>
+            <span class="file-meta">{{ kind_label(f.kind) }} · {{ f.size | filesize }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+  </article>
+  {% endif %}
+{% endblock %}

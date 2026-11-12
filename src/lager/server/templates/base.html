@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Lager{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/">Lager</a>
+    <form class="search" action="/" method="get" role="search">
+      <input type="search" name="q" value="{{ q }}" placeholder="Bauteil, Alias, Tag …"
+             aria-label="Suche" autocomplete="off" autocapitalize="off" spellcheck="false">
+      {% if kategorie %}<input type="hidden" name="kategorie" value="{{ kategorie }}">{% endif %}
+      <button type="submit">Suchen</button>
+    </form>
+  </header>
+
+  <main>
+    {% block main %}{% endblock %}
+  </main>
+
+  <footer>
+    <p>
+      {{ index.teile }} Bauteile · {{ index.dateien }} Dateien ·
+      eingelesen {{ index.aufgebaut_am | replace('T', ' ') | replace('Z', ' UTC') }}
+    </p>
+    {% if not schreibschutz %}
+    <form action="/index/rebuild" method="post">
+      <button type="submit" class="quiet">Ordner neu einlesen</button>
+    </form>
+    {% endif %}
+    <p class="small">Lager {{ version }} · <a href="/docs">API</a></p>
+  </footer>
+</body>
+</html>

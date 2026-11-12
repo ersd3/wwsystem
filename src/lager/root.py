@@ -24,7 +24,8 @@ class Check:
     categories: int = 0
 
 
-def _visible_dirs(d: Path) -> list[Path]:
+def visible_dirs(d: Path) -> list[Path]:
+    """Unterordner ohne die ignorierten (Präfix `_` oder `.`), sortiert."""
     try:
         return [
             x for x in sorted(d.iterdir())
@@ -45,7 +46,7 @@ def count_parts(root: Path) -> int:
 
     def walk(d: Path) -> None:
         nonlocal total
-        for child in _visible_dirs(d):
+        for child in visible_dirs(d):
             if is_part_dir(child):
                 total += 1
             else:
@@ -56,7 +57,7 @@ def count_parts(root: Path) -> int:
 
 
 def count_categories(root: Path) -> int:
-    return len([d for d in _visible_dirs(root) if not is_part_dir(d)])
+    return len([d for d in visible_dirs(root) if not is_part_dir(d)])
 
 
 def check_root(path: Path) -> Check:
@@ -65,9 +66,9 @@ def check_root(path: Path) -> Check:
         return Check(path, False, "existiert nicht oder ist kein Ordner")
 
     n_cats = count_categories(path)
-    n_parts = sum(1 for d in _visible_dirs(path) if is_part_dir(d))
+    n_parts = sum(1 for d in visible_dirs(path) if is_part_dir(d))
     n_parts += sum(
-        count_parts(d) for d in _visible_dirs(path) if not is_part_dir(d)
+        count_parts(d) for d in visible_dirs(path) if not is_part_dir(d)
     )
 
     if (path / CATEGORY_MARKER).is_file():

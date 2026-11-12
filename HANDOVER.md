@@ -3,7 +3,7 @@
 **To:** Claude (Nachfolger-Agent)  
 **From:** LM Studio Bionic Agent, Session 2026-11-11  
 **Fortgeführt von:** Claude (Claude Code), seit 2026-11-12  
-**Status (2026-11-12):** Phase 0.1 komplett und mit echtem Python geprüft (siehe §5). Stack und Prioritäten sind mit Lukas geklärt, die Roadmap ist neu geordnet (§7). Nächster Schritt: Phase 0.2.
+**Status (2026-11-12):** Phase 0.1 und 0.2 sind umgesetzt und getestet (siehe §5). Zusätzlich steht ein lauffähiges Grundgerüst für Phase 1 (Suche in der CLI) und Phase 2 (Server mit REST-API und Handy-Seiten). Was je Phase noch offen ist, steht in §7.
 
 ---
 
@@ -102,6 +102,17 @@ notes: ""
 Jeder Befehl unterstützt `--json`. Fehler → Exit ≠0 + deutsche Meldung auf stderr.  
 Wichtig: `_require_root()` → config-Root falls gültig, sonst Auto-Erkennung, sonst Fehler.
 
+### Index, Suche, Server (seit 2026-11-12)
+Einzelheiten in `KONZEPT.md` §6a (Index) und §7 (Server). Kurzfassung:
+
+- **Index:** `<lager_root>/.lager/parts.db`, Schema in `src/lager/schema.sql` (reines SQL, D6). Tabellen `categories`, `parts`, `part_aliases`, `part_tags`, `files`, `meta`. Abgeleitet, nicht in Git (`.gitignore`).
+- **Befehle:** `lager index rebuild`, `lager index status`, `lager part search [begriff] [--category ID] [--limit N]`, `lager serve [--host H] [--port P]`.
+- **Aktualität:** Der Index wird neu aufgebaut bei `index rebuild`, nach `part new` und `category add/remove` (nur wenn schon ein Index existiert) und bei jedem Serverstart. `part search` baut ihn auf, falls er fehlt.
+- **JSON (D10):** CLI und REST-API geben dieselben dicts aus (`search.py`, `indexer.py`). Datensätze mit englischen Feldnamen (`part`, `name`, `category`, `path`, `files[path, kind, ext, size, mtime]`), Rahmenfelder deutsch (`suche`, `anzahl`, `treffer`, `teile`, `dateien`, `warnungen`).
+- **Server:** FastAPI in `src/lager/server/app.py` (`create_app(root, cfg)`), Vorlagen in `server/templates`, Gestaltung in `server/static/style.css`. Routen: `/`, `/p/<teil>`, `/files/<pfad>`, `/api/v1/{health,parts,parts/<teil>,categories,index,index/rebuild}`, `/docs`.
+- **Sicherheit:** `/files/...` liefert nur Dateien aus, die im Index stehen. Schreibende Aufrufe verlangen `X-Lager-Token`, falls `write_token` gesetzt ist.
+- **SQLite im Server:** Jede Anfrage öffnet ihre Verbindung selbst (`open_index`), weil eine SQLite-Verbindung nur in dem Thread benutzt werden darf, der sie geöffnet hat.
+
 ---
 
 ## 5. Aktueller Stand 2026-11-12
@@ -121,8 +132,20 @@ src/lager/root.py
 src/lager/categories.py
 src/lager/parts.py
 src/lager/cli.py
+src/lager/schema.sql            # Index-Schema, reines SQL
+src/lager/db.py                 # Index öffnen, Schema anlegen, Version prüfen
+src/lager/indexer.py            # Ordner einlesen, Index aufbauen, Status
+src/lager/search.py             # Suche und Abfragen auf dem Index
+src/lager/server/__init__.py
+src/lager/server/app.py         # FastAPI: REST-API, Dateien, Handy-Seiten
+src/lager/server/schemas.py     # Antwort-Formate der API
+src/lager/server/templates/     # base.html, index.html, part.html
+src/lager/server/static/style.css
+tests/conftest.py               # Test-Lager mit Bauteilen und Dateien
 tests/test_core.py
 tests/test_cli.py
+tests/test_index.py
+tests/test_server.py
 lager/categories.yaml
 lager/_vorlage/part.yaml
 lager/mosfets/IRLZ44N/part.yaml
@@ -152,16 +175,19 @@ lager/widerstaende/223-0.1W/part.yaml
   (`Widerstände` → Byte `e4`), was den `--json`-Vertrag für andere Programme brach. Jetzt stellt
   `cli.main()` stdout und stderr fest auf UTF-8 (`force_utf8_output`). Der Einstiegspunkt ist deshalb
   `lager.cli:main` statt `lager.cli:app`. Tests dazu in `tests/test_cli.py` → jetzt **14/14 PASS**.
-- Damit sind alle Punkte der folgenden Liste erledigt (auch `git init` + erster Commit, Repository `ersd3/wwsystem`).
+- Damit ist alles erledigt, was am 2026-11-11 mangels Python offen geblieben war: venv, `pytest` mit echten Paketen, `lager --help`, `git init` + erster Commit (Repository `ersd3/wwsystem`).
 
-**Am 2026-11-11 nicht verifiziert (weil diese Maschine damals kein Python hatte):**
-- `python -m venv .venv && pip install -r requirements.txt -e .`
-- `pytest tests -q` mit echter PyYAML/Typer
-- Konsolen-Einstieg `lager --help` über Typer-Wiring
-- `git init` + erster Commit
+**2026-11-12, Phase 0.2 und Grundgerüst (Python 3.14.10, SQLite 3.50.4, FastAPI 0.162, Starlette 1.10)**
+- `pytest tests -q` → **66/66 PASS** (Kern 12, CLI 10, Index und Suche 24, Server 20)
+- Index gegen das echte Beispiel-Lager: `lager index rebuild --json` → 2 Kategorien, 2 Bauteile, keine Warnungen
+- `lager part search irlz44n --json` → 1 Treffer; Suche mit Umlaut (`widerstände`) → findet `223-0.1W`
+- `lager serve` echt gestartet: `/api/v1/health`, `/api/v1/parts?q=irlz44n`, `/` und `/docs` antworten mit 200
+- Handy-Seiten im Browser bei 375 px Breite geprüft (hell und dunkel), mit einem Wegwerf-Lager samt Test-PDF:
+  Suche, Bauteilseite, PDF öffnet im Browser (`inline`), andere Dateien werden geladen, kein seitliches Scrollen
+- **Noch nicht geprüft:** Zugriff von einem echten Handy im WLAN (`lager serve --host 0.0.0.0`), ein Lager mit
+  mehreren tausend Bauteilen (Dauer des Neuaufbaus), Linux
 
-**Wichtig:** Auf dieser Maschine ist kein Python installiert (nur Windows Store-Stubs). `python`/`py` nicht auffindbar.  
-Claude muss als **ersten Schritt** Python 3.11+ installieren (z.B. per-user von python.org) und dann die venv-Installation durchführen.
+Python 3.14 ist seit 2026-11-12 für das Benutzerkonto installiert; das venv liegt in `.venv` (nicht in Git).
 
 Sample-Daten: Menge = 0 mit Hinweis „Beispiel-Bauteil — Menge 0, bitte korrigieren“. **Keine realen Bestände erfinden.**
 
@@ -181,7 +207,12 @@ Smoke:
 ```bat
 .venv\Scripts\lager status --json
 .venv\Scripts\lager part show IRLZ44N --json
+.venv\Scripts\lager index rebuild
+.venv\Scripts\lager part search irlz44n
+.venv\Scripts\lager serve
 ```
+
+`lager serve` läuft dann unter `http://127.0.0.1:8080`. Fürs Handy im WLAN: `lager serve --host 0.0.0.0`.
 
 ---
 
@@ -189,9 +220,9 @@ Smoke:
 
 Reihenfolge am 2026-11-12 nach den Prioritäten von Lukas neu geordnet (D7). Maßgeblich ist die Tabelle in `KONZEPT.md` §10.
 
-**0.2 Index (SQLite) — als Nächstes:** `<root>/.lager/parts.db` mit Tabellen `parts` und `files` (Datenblätter und andere Dateien je Bauteil). `lager index rebuild` idempotent. Schema nach D6 als reines SQL (`schema.sql`), sprachneutral. Die Tabelle `movements` kommt erst in Phase 5 und wird dann nie neu aufgebaut.  
-**1 Suche + Datenblätter (CLI):** `lager part search <begriff>` case-insensitive über part/aliases/name/manufacturer/tags/category; Dateien eines Bauteils anzeigen; neues Datenblatt einem Bauteil zuordnen. Akzeptanz: `search irlz44n` findet IRLZ44N und zeigt dessen Datenblatt.  
-**2 Server + Web fürs Handy:** FastAPI, OpenAPI, `/api/v1/...`, Jinja2+HTMX Deutsch, zuerst fürs Handy gestaltet, Dateiauslieferung, optional `X-Lager-Token`. Das ist zugleich die mobile App (D8). Akzeptanz: Am Handy im WLAN funktioniert Suche → Bauteilseite → PDF öffnen.  
+**0.2 Index (SQLite) — fertig:** `<root>/.lager/parts.db` mit Tabellen `parts` und `files` (Datenblätter und andere Dateien je Bauteil). `lager index rebuild` idempotent. Schema nach D6 als reines SQL (`schema.sql`), sprachneutral. Die Tabelle `movements` kommt erst in Phase 5 und wird dann nie neu aufgebaut.  
+**1 Suche + Datenblätter (CLI):** `lager part search <begriff>` case-insensitive über part/aliases/name/manufacturer/tags/category; Dateien eines Bauteils anzeigen; neues Datenblatt einem Bauteil zuordnen. Akzeptanz: `search irlz44n` findet IRLZ44N und zeigt dessen Datenblatt. **Stand:** Suche fertig. Offen: Datenblatt einem Bauteil zuordnen (`part attach` o. ä.), Suche auch in Dateinamen.  
+**2 Server + Web fürs Handy:** FastAPI, OpenAPI, `/api/v1/...`, Jinja2+HTMX Deutsch, zuerst fürs Handy gestaltet, Dateiauslieferung, optional `X-Lager-Token`. Das ist zugleich die mobile App (D8). Akzeptanz: Am Handy im WLAN funktioniert Suche → Bauteilseite → PDF öffnen. **Stand:** Grundgerüst läuft (API, Dateien, Suche, Bauteilseite; ohne HTMX). Offen: am echten Handy prüfen, Daten über das Web ändern, Suche beim Tippen.  
 **3 Handy-Komfort:** `lager qr print <teil>` PDF mit QR zu `public_url/p/<id>`. Später HTTPS, damit ein Kamera-Scanner in der Seite und der Startbildschirm (PWA) möglich werden. Akzeptanz: Handy-Kamera öffnet die Bauteilseite.  
 **4 MCP:** MCP-Server `lager mcp` (stdio) mit Tools `search_parts`, `get_part`, `create_part`, `update_part`, `list_categories`, `add_category`, `reindex` für die Datenpflege durch lokale Agenten. Akzeptanz: LM Studio kann MCP ansteuern.  
 **5 Mengen:** `lager stock in/out`, `lager stock list --low N`, Verlauf in `movements`, MCP-Tool `set_quantity`.  
@@ -201,8 +232,8 @@ Reihenfolge am 2026-11-12 nach den Prioritäten von Lukas neu geordnet (D7). Ma�
 
 ## 8. Arbeitsregeln für Nachfolger
 
-- **Erst fragen, dann schreiben:** Änderungen vorschlagen und auf das Ja von Lukas warten (festgelegt am 2026-11-12).
-- **Danach direkt hochladen:** nach dem Schreiben ohne weitere Rückfrage committen und direkt auf `main` zu GitHub pushen (`ersd3/wwsystem`). Kein eigener Branch, kein Pull Request.
+- **Vor dem Commit fragen:** Lokal darf direkt geschrieben werden. Vor jedem Commit zeigen, was geändert wurde, und auf das Ja von Lukas warten (festgelegt am 2026-11-12).
+- **Danach direkt hochladen:** nach dem Ja committen und ohne weitere Rückfrage direkt auf `main` zu GitHub pushen (`ersd3/wwsystem`). Kein eigener Branch, kein Pull Request.
 - **Doku immer aktuell:** `KONZEPT.md` und `HANDOVER.md` bei jeder Änderung mitziehen. Lukas verfolgt darüber den Projektfortschritt.
 - `main` immer lauffähig, kleine Commits, Tests vor Features.
 - CLI `--json` Vertrag ist heilig.
@@ -922,4 +953,4 @@ notes: Beispiel-Bauteil aus der Projektanlegung (Menge 0, bitte korrigieren).
 
 ---
 
-*Ende HANDOVER. Nächste Aktion: Phase 0.2 (SQLite-Index über Bauteile und Dateien) vorschlagen, nach dem Ja von Lukas umsetzen.*
+*Ende HANDOVER. Nächste Aktion: mit Lukas den Server am echten Handy im WLAN prüfen, dann Phase 1 abschließen (Datenblatt zuordnen). Vor jedem Commit fragen.*

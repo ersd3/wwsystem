@@ -7,14 +7,18 @@ Meldung auf stderr.
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
 import typer
 
 from . import __version__, categories as catmod
+from . import db as dbmod
+from . import indexer
 from . import parts as partmod
 from . import root as rootmod
+from . import search as searchmod
 from .config import (
     CONFIG_PATH,
     load_config,
@@ -30,10 +34,12 @@ app = typer.Typer(
 )
 root_app = typer.Typer(help="Lager-Root verwalten (bewegbar).")
 cat_app = typer.Typer(help="Kategorien verwalten (anlegbar, nichts hardcodiert).")
-part_app = typer.Typer(help="Bauteile verwalten (part.yaml).")
+part_app = typer.Typer(help="Bauteile verwalten (part.yaml) und suchen.")
+index_app = typer.Typer(help="Such-Index (SQLite) verwalten. Er wird aus den Ordnern aufgebaut.")
 app.add_typer(root_app, name="root")
 app.add_typer(cat_app, name="category")
 app.add_typer(part_app, name="part")
+app.add_typer(index_app, name="index")
 
 
 def force_utf8_output() -> None:
@@ -78,6 +84,25 @@ def _require_root() -> Path:
         err=True,
     )
     raise typer.Exit(1)
+
+
+def _fail(message: str) -> None:
+    typer.echo(f"Fehler: {message}", err=True)
+    raise typer.Exit(1)
+
+
+def _refresh_index(root: Path) -> None:
+    """Hält einen vorhandenen Index nach einer Änderung über die CLI aktuell.
+
+    Die Änderung an den Ordnern ist zu diesem Zeitpunkt schon erfolgt. Ein
+    Fehler hier bricht den Befehl deshalb nicht ab, sondern gibt nur eine Warnung.
+    """
+    if not dbmod.db_path(root).exists():
+        return
+    try:
+        indexer.rebuild(root, load_config())
+    except (dbmod.IndexDbError, sqlite3.Error, OSError) as e:
+        typer.echo(f"Warnung: Index nicht aktualisiert ({e}). Nachholen: lager index rebuild", err=True)
 
 
 @app.command()
@@ -228,6 +253,7 @@ def cat_add(
     except ValueError as e:
         typer.echo(f"Fehler: {e}", err=True)
         raise typer.Exit(1)
+    _refresh_index(root)
     _print({"kategorie": entry, "pfad": str(root / entry["id"])}, as_json)
 
 
@@ -263,6 +289,7 @@ def cat_remove(
     except (KeyError, ValueError) as e:
         typer.echo(f"Fehler: {e.args[0] if e.args else e}", err=True)
         raise typer.Exit(1)
+    _refresh_index(root)
     _print({"entfernt": kategorie}, as_json)
 
 
@@ -296,6 +323,7 @@ def part_new(
     except ValueError as e:
         typer.echo(f"Fehler: {e}", err=True)
         raise typer.Exit(1)
+    _refresh_index(root)
     _print({"teil": str(pdir)}, as_json)
 
 
@@ -322,3 +350,100 @@ def part_show(
         if f.is_file() and f.name != "part.yaml"
     ]
     _print({"ordner": str(pdir), "daten": data, "dateien": files}, as_json)
+
+
+@part_app.command("search")
+def part_search(
+    begriff: str = typer.Argument(
+        "", help="Suchbegriffe (alle müssen vorkommen). Leer = alle Bauteile."
+    ),
+    category: str = typer.Option("", "--category", "-c", help="Nur in dieser Kategorie-ID"),
+    limit: int = typer.Option(50, "--limit", help="Höchstzahl der Treffer"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Sucht Bauteile im Index (Bezeichnung, Name, Hersteller, Aliase, Tags, Kategorie)."""
+    root = _require_root()
+    try:
+        indexer.ensure_index(root, load_config())
+        conn = dbmod.connect(root, create=False)
+    except dbmod.IndexDbError as e:
+        _fail(str(e))
+    try:
+        hits = searchmod.search(conn, begriff, category or None, limit)
+    finally:
+        conn.close()
+
+    if as_json:
+        _print(
+            {"suche": begriff, "kategorie": category, "anzahl": len(hits), "treffer": hits},
+            True,
+        )
+        return
+    if not hits:
+        typer.echo(f"Keine Treffer für: {begriff}" if begriff else "Keine Bauteile im Index.")
+        return
+    for hit in hits:
+        typer.echo(f"{hit['part']}  ·  {hit['category_label']}  ·  {hit['name']}")
+        sheets = [f["path"] for f in hit["files"] if f["kind"] == "datasheet"]
+        if sheets:
+            typer.echo(f"    Datenblatt: {', '.join(sheets)}")
+        typer.echo(f"    Ordner: {root / hit['path']}")
+
+
+# ---------------------------------------------------------------- index
+
+
+@index_app.command("rebuild")
+def index_rebuild(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Baut den Such-Index aus der Ordnerstruktur neu auf (beliebig oft ausführbar)."""
+    root = _require_root()
+    try:
+        result = indexer.rebuild(root, load_config())
+    except dbmod.IndexDbError as e:
+        _fail(str(e))
+    if as_json:
+        _print(result, True)
+        return
+    typer.echo(
+        f"Index aufgebaut: {result['teile']} Bauteile, {result['kategorien']} Kategorien, "
+        f"{result['dateien']} Dateien ({result['dauer_ms']} ms)"
+    )
+    typer.echo(f"Datei: {result['db']}")
+    for warning in result["warnungen"]:
+        typer.echo(f"Warnung: {warning['pfad']}: {warning['grund']}")
+
+
+@index_app.command("status")
+def index_status(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Zeigt, ob es einen Index gibt, wann er aufgebaut wurde und was er enthält."""
+    root = _require_root()
+    try:
+        result = indexer.status(root)
+    except dbmod.IndexDbError as e:
+        _fail(str(e))
+    _print(result, as_json)
+    if not result["vorhanden"] and not as_json:
+        typer.echo("Tipp: lager index rebuild")
+
+
+# ---------------------------------------------------------------- serve
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("", "--host", help="Adresse (Standard: server.host aus config.yaml)"),
+    port: int = typer.Option(0, "--port", help="Port (Standard: server.port aus config.yaml)"),
+) -> None:
+    """Startet den Web-Server (REST-API und Handy-Seiten)."""
+    root = _require_root()
+    cfg = load_config()
+    try:
+        import uvicorn
+
+        from .server.app import create_app
+    except ImportError as e:
+        _fail(f"Server-Pakete fehlen ({e.name}). Installieren: pip install -r requirements.txt")
+    bind_host = host or str(cfg["server"]["host"])
+    bind_port = port or int(cfg["server"]["port"])
+    typer.echo(f"Lager-Server: http://{bind_host}:{bind_port}  (Beenden mit Strg+C)")
+    uvicorn.run(create_app(root, cfg), host=bind_host, port=bind_port, log_level="info")

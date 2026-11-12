@@ -17,3 +17,11 @@ server:
 # Token für Schreiboperationen (Server/Phase 2+); leer = ohne Schreibschutz
 # (für privates LAN gedacht)
 write_token: ""
+
+
+# Dateiarten nach Dateiendung (optional). Ohne diesen Eintrag gelten die Standardwerte:
+# file_kinds:
+#   datasheet: [pdf]
+#   cad3d: [step, stp, wrl, iges, igs, stl]
+#   kicad: [kicad_mod, kicad_sym, kicad_pcb, kicad_sch]
+#   image: [png, jpg, jpeg, gif, webp, svg]
