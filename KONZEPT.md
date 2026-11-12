@@ -1,6 +1,6 @@
 # Konzept — Bauteile-Lagersystem ("Lager")
 
-Stand: 2026-11-11 · Status: Phase 0.1 umgesetzt (Grundgerüst)
+Stand: 2026-11-12 · Status: Phase 0.1 umgesetzt und mit echtem Python geprüft · Als Nächstes: Phase 0.2 (SQLite-Index)
 
 ## 1. Ziel
 
@@ -13,6 +13,16 @@ Ein System zur Pflege einer großen Sammlung elektronischer Bauteile
 - **offener, sichtbarer Ordnerstruktur** (Windows & Linux, im Explorer sichtbar)
 - Server + Web-Client, CLI und später Smartphone (QR) — alle bedienen denselben Kern
 - Bedien- und pflegebar durch AI-Agenten (CLI mit `--json`, REST, MCP)
+
+### Prioritäten (von Lukas, 2026-11-12)
+
+Das System ist in erster Linie für die **private Nutzung** gedacht.
+
+1. **Datenblätter schnell finden und einlesen.** Das ist der Hauptzweck: Bauteil suchen,
+   Datenblatt öffnen und lesen, ein neues Datenblatt schnell aufnehmen.
+2. **Nutzung am Handy.** Sie wird direkt nach der Grundstruktur gebaut (als Web-Oberfläche, D8).
+3. **Mengen eintragen.** Nachrangig. Das Feld `quantity` in der `part.yaml` bleibt und kann
+   von Hand gepflegt werden; Buchungen mit Verlauf kommen erst spät (Phase 5).
 
 ## 2. Grundprinzipien
 
@@ -98,7 +108,7 @@ notes: ""
 
 - `part` = Ordnername (kanonisch)
 - Die Kategorie kommt aus dem Pfad (1. Ebene) → wird nicht doppelt gespeichert
-- `quantity` ist der Ist-Stand in `part.yaml`; jede Änderung erzeugt (ab Phase 1)
+- `quantity` ist der Ist-Stand in `part.yaml`; jede Änderung erzeugt (ab Phase 5)
   zusätzlich einen Eintrag in der SQLite-Tabelle `movements` (historisch, mit Quelle)
 
 ## 7. Architektur (Zielbild)
@@ -114,18 +124,44 @@ notes: ""
                              │
                 ┌────────────┴────────────┐
                 ▼                         ▼
-          SQLite (Index +        Ordnerstruktur (Quelle der
-          movements, ab 0.2)     Wahrheit: part.yaml + Dateien)
+          SQLite (Index ab 0.2,  Ordnerstruktur (Quelle der
+          movements ab 5)        Wahrheit: part.yaml + Dateien)
 ```
 
 Schnittstellen:
 
 - **REST** (Phase 2): `/api/v1/…` + OpenAPI + Swagger-UI
-- **CLI** (fertig in 0.1): `lager …` — jeder Befehl mit `--json`
-- **MCP** (Phase 3): Tools `search_parts, get_part, create_part, update_quantity, …`
-- **Web** (Phase 2): Suche, Kategorie-Browse, Bauteilseite, Datenblatt-Inline, ±Menge
-- **QR** (Phase 3): `http://<host>:<port>/p/<BEZEICHNUNG>` — zuerst ohne App
-  (jede Handy-Kamera öffnet die Seite), später PWA mit Kamera-Scanner
+- **CLI** (Grundgerüst fertig in 0.1): `lager …` — jeder Befehl mit `--json`
+- **Web** (Phase 2): zuerst fürs Handy gestaltet — Suche, Kategorie-Browse, Bauteilseite,
+  Datenblatt öffnen. Das ist zugleich die mobile App (D8).
+- **QR** (Phase 3): `http://<host>:<port>/p/<BEZEICHNUNG>` — jede Handy-Kamera öffnet die Seite
+- **MCP** (Phase 4): Tools `search_parts, get_part, create_part, …` für die Datenpflege
+  durch lokale Agenten
+
+### Mobile App = Web-Oberfläche (D8)
+
+Die mobile App ist die Web-Oberfläche des Servers, zuerst fürs Handy gestaltet. Es gibt
+keine eigene Android- oder iOS-App.
+
+- Handy und PC nutzen dieselbe Seite; es gibt nur einen Code.
+- Kein App-Store, keine App-Werkzeuge: Das Handy öffnet die Adresse des Servers im WLAN.
+- PDFs öffnet der Handy-Browser direkt.
+- Ein QR-Etikett enthält nur die Adresse der Bauteilseite; die normale Kamera-App öffnet sie.
+
+Einschränkung: Ein Kamera-Scanner innerhalb der Seite und das Installieren auf dem
+Startbildschirm (PWA) verlangen im Browser eine verschlüsselte Verbindung (HTTPS). Im
+reinen WLAN-Betrieb ohne HTTPS geht beides nicht; das Scannen mit der normalen Kamera-App
+funktioniert trotzdem. HTTPS ist deshalb ein eigener, späterer Schritt in Phase 3.
+Falls später doch eine echte App gewünscht ist, lässt sich die Web-Oberfläche in eine
+App-Hülle einbetten.
+
+### Was MCP ist
+
+MCP („Model Context Protocol“) ist ein offener Standard, über den ein KI-Assistent wie
+LM Studio feste Funktionen eines anderen Programms aufrufen kann. Für das Lager ist das
+ein kleines Zusatzprogramm mit Funktionen wie „Bauteil suchen“ oder „Bauteil anlegen“.
+Der Agent kann dann nur tun, was diese Funktionen erlauben, und die Eingaben werden
+geprüft. Ein Agent mit Terminalzugriff kann dasselbe schon über die CLI mit `--json`.
 
 ## 8. Technologie-Entscheidung
 
@@ -193,12 +229,16 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 | Phase | Inhalt | Status |
 |---|---|---|
 | 0.1 | Konfiguration, bewegbarer Root, Auto-Erkennung, Kategorien, part.yaml, CLI-Grundgerüst, Tests | ✅ |
-| 0.2 | Index (SQLite) + `lager index rebuild` | offen |
-| 1 | Vollständige CLI: Suche, Ein-/Ausbuchungen (movements) | offen |
-| 2 | REST-API (FastAPI, OpenAPI) + Web-UI + Dateiauslieferung | offen |
-| 3 | MCP-Server + QR-Etiketten (PDF) | offen |
-| 4 | PWA/Smartphone (installierbar, QR-Scanner) | offen |
-| 5 | Linux-Härtung, Packaging, Backup | offen |
+| 0.2 | SQLite-Index über Bauteile und ihre Dateien (Datenblätter) + `lager index rebuild` | als Nächstes |
+| 1 | Suche und Datenblätter in der CLI: Bauteil suchen, Dateien anzeigen, neues Datenblatt einem Bauteil zuordnen | offen |
+| 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | offen |
+| 3 | Handy-Komfort: QR-Etiketten (PDF); später HTTPS mit Kamera-Scanner und Startbildschirm (PWA) | offen |
+| 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
+| 5 | Mengen ein- und ausbuchen mit Verlauf (`movements`) | offen |
+| 6 | Linux-Härtung, Packaging, Backup | offen |
+
+Die Reihenfolge folgt den Prioritäten aus §1 und wurde am 2026-11-12 neu geordnet (D7).
+Vorher standen Mengenbuchungen und MCP vor der Handy-Nutzung.
 
 ## 11. Entscheidungsprotokoll
 
@@ -211,3 +251,5 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 | D5 | 2026-11-11 | Ordner mit `_`/`.`-Präfix werden vom Scanner ignoriert |
 | D1 | 2026-11-12 | Python von Lukas bestätigt (C++ ein zweites Mal geprüft, verworfen) |
 | D6 | 2026-11-12 | Sprachneutrale Datenhaltung: Datenbank und Dateien ohne Python-Spezifisches (s. §8) |
+| D7 | 2026-11-12 | Prioritäten: private Nutzung; Datenblätter finden und einlesen vor Mengen; Roadmap neu geordnet (s. §1, §10) |
+| D8 | 2026-11-12 | Mobile App = Web-Oberfläche des Servers, zuerst fürs Handy gestaltet; keine eigene App (s. §7) |

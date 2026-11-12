@@ -2,7 +2,8 @@
 
 **To:** Claude (Nachfolger-Agent)  
 **From:** LM Studio Bionic Agent, Session 2026-11-11  
-**Status:** Phase 0.1 komplett, verifiziert (siehe §5). Nächster Schritt Phase 0.2.
+**Fortgeführt von:** Claude (Claude Code), seit 2026-11-12  
+**Status (2026-11-12):** Phase 0.1 komplett und mit echtem Python geprüft (siehe §5). Stack und Prioritäten sind mit Lukas geklärt, die Roadmap ist neu geordnet (§7). Nächster Schritt: Phase 0.2.
 
 ---
 
@@ -11,6 +12,8 @@
 Ein System zur Pflege einer großen Sammlung elektronischer Bauteile (Widerstände, Transistoren/MOSFETs, ICs…) mit Suche, Datenblatt/CAD/KiCad-Zugriff, Mengennachhaltung und **offener, browsbarer Ordnerstruktur** (Windows jetzt, Linux später).  
 Server + Client (Web), CLI, später Smartphone-QR.  
 Alles läuft über einen gemeinsamen Kern (REST/OpenAPI), bedienbar per CLI und AI-Agent (Agentenvertrag: `--json`, später MCP).
+
+**Prioritäten (Lukas, 2026-11-12):** Private Nutzung. Datenblätter schnell finden und einlesen ist der Hauptzweck und wichtiger als das Eintragen von Mengen. Direkt nach der Grundstruktur kommt die Nutzung am Handy, gebaut als Web-Oberfläche des Servers (D8).
 
 ---
 
@@ -32,6 +35,8 @@ Alles läuft über einen gemeinsamen Kern (REST/OpenAPI), bedienbar per CLI und 
 - Bewegbarer Filesystem-Root: Pfad in einer Stelle konfigurierbar (`lager_root` in `config.yaml`), bei passender Struktur automatisch erkennen/validieren.
 - Kategorien anlegbar, nicht von Anfang an festgezurrt – auch vom Agenten anlegbar.
 - `part.yaml` nach Agent-Vorschlag gestalten.
+- **D7 – Prioritäten:** private Nutzung; Datenblätter finden und einlesen vor Mengen; Roadmap entsprechend neu geordnet (§7).
+- **D8 – Mobile App = Web-Oberfläche:** zuerst fürs Handy gestaltet, keine eigene Android-/iOS-App. Begründung und HTTPS-Einschränkung in `KONZEPT.md` §7.
 - C++ prüfen. → Am 2026-11-12 ein zweites Mal geprüft; Lukas hat **Python bestätigt** (D1).
 - **D6 – Sprachneutrale Datenhaltung:** Datenbanken und Dateien „allgemein“ anlegen, nichts Python-Spezifisches. Regeln stehen in `KONZEPT.md` §8 (Schema als reines SQL, nur Standardtypen, kein ORM, kein `pickle`).
 
@@ -99,7 +104,7 @@ Wichtig: `_require_root()` → config-Root falls gültig, sonst Auto-Erkennung, 
 
 ---
 
-## 5. Aktueller Stand 2026-11-11
+## 5. Aktueller Stand 2026-11-12
 
 ### Vorhandene Dateien (auf Disk)
 ```
@@ -117,6 +122,7 @@ src/lager/categories.py
 src/lager/parts.py
 src/lager/cli.py
 tests/test_core.py
+tests/test_cli.py
 lager/categories.yaml
 lager/_vorlage/part.yaml
 lager/mosfets/IRLZ44N/part.yaml
@@ -181,17 +187,23 @@ Smoke:
 
 ## 7. Roadmap & Akzeptanzkriterien
 
-**0.2 Index (SQLite):** `<root>/.lager/parts.db` mit Tabellen `parts`, `files`, `movements`. `lager index rebuild` idempotent, Bewegungen nie neu aufgebaut. Schema nach D6 als reines SQL (`schema.sql`), sprachneutral.  
-**1 CLI vollständig:** `lager stock in/out`, `lager stock list --low N`, `lager part search <begriff>` case-insensitive über part/aliases/name/manufacturer/tags/category. Akzeptanz: `search irlz44n` findet IRLZ44N.  
-**2 Server + Web:** FastAPI, OpenAPI, `/api/v1/...`, Jinja2+HTMX Deutsch, Dateiauslieferung, Optional `X-Lager-Token`. Akzeptanz: Browser-Flow Suche → PDF → Menge funktioniert auf `localhost:8080`.  
-**3 AI + QR:** MCP-Server `lager mcp` (stdio) mit Tools `search_parts`, `get_part`, `create_part`, `update_part`, `set_quantity`, `list_categories`, `add_category`, `reindex`. `lager qr print <teil>` PDF mit QR zu `public_url/p/<id>`. Akzeptanz: LM Studio kann MCP ansteuern, Handy-Kamera öffnet Teilseite.  
-**4 Smartphone:** PWA mit Kamera-Scanner.  
-**5 Linux:** Portabilität, Packaging.
+Reihenfolge am 2026-11-12 nach den Prioritäten von Lukas neu geordnet (D7). Maßgeblich ist die Tabelle in `KONZEPT.md` §10.
+
+**0.2 Index (SQLite) — als Nächstes:** `<root>/.lager/parts.db` mit Tabellen `parts` und `files` (Datenblätter und andere Dateien je Bauteil). `lager index rebuild` idempotent. Schema nach D6 als reines SQL (`schema.sql`), sprachneutral. Die Tabelle `movements` kommt erst in Phase 5 und wird dann nie neu aufgebaut.  
+**1 Suche + Datenblätter (CLI):** `lager part search <begriff>` case-insensitive über part/aliases/name/manufacturer/tags/category; Dateien eines Bauteils anzeigen; neues Datenblatt einem Bauteil zuordnen. Akzeptanz: `search irlz44n` findet IRLZ44N und zeigt dessen Datenblatt.  
+**2 Server + Web fürs Handy:** FastAPI, OpenAPI, `/api/v1/...`, Jinja2+HTMX Deutsch, zuerst fürs Handy gestaltet, Dateiauslieferung, optional `X-Lager-Token`. Das ist zugleich die mobile App (D8). Akzeptanz: Am Handy im WLAN funktioniert Suche → Bauteilseite → PDF öffnen.  
+**3 Handy-Komfort:** `lager qr print <teil>` PDF mit QR zu `public_url/p/<id>`. Später HTTPS, damit ein Kamera-Scanner in der Seite und der Startbildschirm (PWA) möglich werden. Akzeptanz: Handy-Kamera öffnet die Bauteilseite.  
+**4 MCP:** MCP-Server `lager mcp` (stdio) mit Tools `search_parts`, `get_part`, `create_part`, `update_part`, `list_categories`, `add_category`, `reindex` für die Datenpflege durch lokale Agenten. Akzeptanz: LM Studio kann MCP ansteuern.  
+**5 Mengen:** `lager stock in/out`, `lager stock list --low N`, Verlauf in `movements`, MCP-Tool `set_quantity`.  
+**6 Linux:** Portabilität, Packaging, Backup.
 
 ---
 
 ## 8. Arbeitsregeln für Nachfolger
 
+- **Erst fragen, dann schreiben:** Änderungen vorschlagen und auf das Ja von Lukas warten (festgelegt am 2026-11-12).
+- **Danach direkt hochladen:** nach dem Schreiben ohne weitere Rückfrage committen und direkt auf `main` zu GitHub pushen (`ersd3/wwsystem`). Kein eigener Branch, kein Pull Request.
+- **Doku immer aktuell:** `KONZEPT.md` und `HANDOVER.md` bei jeder Änderung mitziehen. Lukas verfolgt darüber den Projektfortschritt.
 - `main` immer lauffähig, kleine Commits, Tests vor Features.
 - CLI `--json` Vertrag ist heilig.
 - Ordner/part.yaml-Vertrag nicht brechen ohne `KONZEPT.md` + `HANDOVER.md` aktualisieren.
@@ -207,12 +219,16 @@ Smoke:
 - Finale Kategorienliste (jetzt Platzhalter)?
 - Lagerfach-Schema (z.B. „A-03-2“)?
 - LAN-Name/IP für `public_url` (für QR, Phase 3)?
+- Auf welchem Gerät läuft der Server später im WLAN (dieser PC oder ein eigener Linux-Rechner)? Wichtig ab Phase 2.
+- Soll es HTTPS geben (nötig für Kamera-Scanner in der Seite und Startbildschirm, Phase 3)?
 
 ---
 
 ## Anhang A — Vollständige Phase-0.1-Quellen (Stand 2026-11-11)
 
 *Hinweis: Dateien im Projektordner sind maßgeblich. Der Anhang ist 1:1-Kopie, falls nur die .md übertragen wird.*
+
+*Achtung: Der Anhang zeigt den Stand vom 2026-11-11 und ist nicht mehr vollständig aktuell. Seitdem geändert: `pyproject.toml`, `src/lager/__main__.py`, `src/lager/cli.py` (Einstiegspunkt `main()`, UTF-8-Ausgabe); neu: `tests/test_cli.py`. Der aktuelle Code liegt im Repository `ersd3/wwsystem`.*
 
 ### pyproject.toml
 ```toml
@@ -906,4 +922,4 @@ notes: Beispiel-Bauteil aus der Projektanlegung (Menge 0, bitte korrigieren).
 
 ---
 
-*Ende HANDOVER. Nächste Aktion für Claude: Python installieren, venv aufsetzen, `pytest` ausführen, dann Phase 0.2 starten.*
+*Ende HANDOVER. Nächste Aktion: Phase 0.2 (SQLite-Index über Bauteile und Dateien) vorschlagen, nach dem Ja von Lukas umsetzen.*
