@@ -1,0 +1,19 @@
+# Konfiguration — Lagersystem
+#
+# lager_root: Pfad zum Lager-Root (die Ordnerstruktur mit Kategorien und Bauteilen).
+#   leer     = Auto-Erkennung (Projektordner/lager, dann ~/lager)
+#   relativ  = relativ zu diesem Projektordner (gut zum Verschieben)
+#   absolut  = wird direkt verwendet
+# Ändern: Lager verschieben? -> `lager root set <neuer-pfad>`
+lager_root: "lager"
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  # URL, die später auf QR-Etiketten stehen soll (muss vom Handy erreichbar sein),
+  # z. B. "http://192.168.1.50:8080"
+  public_url: ""
+
+# Token für Schreiboperationen (Server/Phase 2+); leer = ohne Schreibschutz
+# (für privates LAN gedacht)
+write_token: ""

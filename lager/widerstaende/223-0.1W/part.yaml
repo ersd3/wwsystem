@@ -1,0 +1,20 @@
+# part.yaml — Metadaten eines Bauteils
+# part       kanonische Bezeichnung (= Ordnername)
+# name       Beschreibung (menschlich)
+# aliases    weitere Suchbegriffe (Bestell-, Hersteller-, Alt-Bezeichnungen)
+# quantity   aktuelle Lagermenge
+# unit       Mengeneinheit
+# location   Lagerfach (frei wählbar, z. B. "A-03-2")
+# tags       freie Schlagwörter
+# Kategorie  kommt aus dem Pfad (1. Ebene unter lager_root) — nicht hier speichern
+part: 223-0.1W
+name: Widerstand 22 kOhm, 0.1 W, 5 %
+manufacturer: ''
+aliases: []
+quantity: 0
+unit: Stk
+location: ''
+tags:
+- widerstand
+- 22k
+notes: Beispiel-Bauteil aus der Projektanlegung (Menge 0, bitte korrigieren).

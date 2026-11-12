@@ -1,0 +1,180 @@
+# Konzept — Bauteile-Lagersystem ("Lager")
+
+Stand: 2026-11-11 · Status: Phase 0.1 umgesetzt (Grundgerüst)
+
+## 1. Ziel
+
+Ein System zur Pflege einer großen Sammlung elektronischer Bauteile
+(Widerstände, Kondensatoren, Transistoren/MOSFETs, ICs, …) mit:
+
+- Suche nach Bauteil, Alias, Name, Tag, Kategorie
+- Abruf von Datenblättern (PDF), CAD-Modellen, KiCad-Dateien
+- Mengennachhaltung (ein/ausbuchen, Lagerfach)
+- **offener, sichtbarer Ordnerstruktur** (Windows & Linux, im Explorer sichtbar)
+- Server + Web-Client, CLI und später Smartphone (QR) — alle bedienen denselben Kern
+- Bedien- und pflegebar durch AI-Agenten (CLI mit `--json`, REST, MCP)
+
+## 2. Grundprinzipien
+
+| # | Prinzip |
+|---|---------|
+| P1 | **Ordnerstruktur = Quelle der Wahrheit** für Dateien und Kategorie. Alles nutzbar ohne das Programm (Explorer, Backup, Kopieren, Verschieben). |
+| P2 | **`part.yaml`** = Metadaten je Bauteil (Menge, Ort, Hersteller, Aliase, Tags). Mensch- und maschinenlesbar. |
+| P3 | **SQLite = abgeleiteter Index + Buchhaltung** (Phase 0.2). Jederzeit aus den Ordnern neu aufbaubar (`lager index rebuild`); die DB ist nie die einzige Kopie der Daten. |
+| P4 | **Ein Kern, mehrere Clients:** Die REST-API (OpenAPI) ist die Kerneschnittstelle. Web-UI, CLI, MCP-Server und Smartphone-App sind nur Clients davon. |
+| P5 | **Beweglicher Root:** Der Lager-Pfad ist eine einzige Konfig-Eigenschaft (`lager_root` in `config.yaml`). Die Struktur wird automatisch erkannt und validiert. |
+| P6 | **Nichts hardcodiert:** Kategorien, Dateitypen, Pfade — alles Daten/Konfiguration, anpassbar per CLI (also auch per AI-Agent). |
+| P7 | **Standards:** SQLite, REST/OpenAPI, YAML, QR = normale URL, PDF, KiCad-Originalformate. |
+
+## 3. Ordnerstruktur (Vertrag)
+
+```
+<lager_root>/
+├── categories.yaml          # Kategorien (Marker + Liste)
+├── _vorlage/                # ignoriert vom Scanner (Unterstrich-/Punkt-Präfix)
+│   └── part.yaml
+└── <kategorie>/             # Ebene 1 = Kategorie (Ordnername = id)
+    └── <kategorie2>/        # Ebene 2 optional = Unterkategorie
+        └── <BEZEICHNUNG>/   # Bauteil-Ordner, Name = normalisierte Bezeichnung
+            ├── part.yaml
+            ├── datasheet.pdf   # (oder andere .pdf)
+            ├── 3d/             # .step, .stp, .wrl, …
+            ├── kicad/          # .kicad_mod, .kicad_sym, .kicad_pcb, …
+            └── images/         # .png, .jpg
+```
+
+Namensregeln:
+
+- Kategorie-`id`: `a-z 0-9 -` (Umlaute werden transliteriert: `Widerstände` → `widerstaende`)
+- Bauteil-`BEZEICHNUNG`: `A-Z 0-9 - _ . +`, großgeschrieben, z. B. `IRLZ44N`
+- Ordner mit Präfix `_` oder `.` werden vom Scanner ignoriert (intern/Reserve)
+- Dateien werden automatisch nach Typ erkannt (Dateiendung) → keine manuelle Registrierung
+
+## 4. Bewegbarer Root + Auto-Erkennung
+
+`config.yaml` im Projektordner:
+
+```yaml
+lager_root: "lager"   # leer = Auto-Erkennung; relativ = zum Projektordner; absolut = direkt
+```
+
+Auflösungsreihenfolge:
+
+1. `lager_root` gesetzt und valid → wird verwendet (Quelle: `config`)
+2. sonst Kandidaten: `<projekt>/lager/`, dann `~/lager/` (Quelle: `auto`)
+3. Ein Kandidat ist **valid**, wenn er `categories.yaml` enthält (starker Marker)
+   **oder** darunter `kategorie/<...>/part.yaml` existiert (Struktur passt)
+
+Befehle: `lager init <pfad>`, `lager root set/unset/detect`, `lager status`.
+
+## 5. Kategorien (anlegbar, nicht fix)
+
+`<lager_root>/categories.yaml`:
+
+```yaml
+categories:
+  - id: mosfets
+    label: "MOSFETs"
+```
+
+- Anlegen: `lager category add mosfets --label "MOSFETs"` → Eintrag + Ordner
+- Das Programm kennt **keine** feste Kategorienliste; es liest nur diese Datei
+- Dadurch kann auch ein AI-Agent Kategorien anlegen (gleiche CLI, später MCP-Tool)
+
+## 6. part.yaml (Schema v1)
+
+```yaml
+part: IRLZ44N
+name: "MOSFET N-Kanal 55 V / 47 A, TO-220"
+manufacturer: Infineon
+aliases: [IRLZ44NTR]
+quantity: 24
+unit: Stk
+location: "A-03-2"
+tags: [n-kanal, 55v, to-220]
+notes: ""
+```
+
+- `part` = Ordnername (kanonisch)
+- Die Kategorie kommt aus dem Pfad (1. Ebene) → wird nicht doppelt gespeichert
+- `quantity` ist der Ist-Stand in `part.yaml`; jede Änderung erzeugt (ab Phase 1)
+  zusätzlich einen Eintrag in der SQLite-Tabelle `movements` (historisch, mit Quelle)
+
+## 7. Architektur (Zielbild)
+
+```
+ Browser ─────► Web UI (Jinja2 + HTMX)
+                      │
+ AI-Agent ─────► MCP-Server ─┐
+                             ▼
+                      REST-API (FastAPI, OpenAPI/Swagger)
+                             │
+ CLI ───────────► CORE: Index, Dateien, Kategorien, Buchungen
+                             │
+                ┌────────────┴────────────┐
+                ▼                         ▼
+          SQLite (Index +        Ordnerstruktur (Quelle der
+          movements, ab 0.2)     Wahrheit: part.yaml + Dateien)
+```
+
+Schnittstellen:
+
+- **REST** (Phase 2): `/api/v1/…` + OpenAPI + Swagger-UI
+- **CLI** (fertig in 0.1): `lager …` — jeder Befehl mit `--json`
+- **MCP** (Phase 3): Tools `search_parts, get_part, create_part, update_quantity, …`
+- **Web** (Phase 2): Suche, Kategorie-Browse, Bauteilseite, Datenblatt-Inline, ±Menge
+- **QR** (Phase 3): `http://<host>:<port>/p/<BEZEICHNUNG>` — zuerst ohne App
+  (jede Handy-Kamera öffnet die Seite), später PWA mit Kamera-Scanner
+
+## 8. Technologie-Entscheidung
+
+**Entscheidung D1: Python 3.11+ (Typer, PyYAML; später FastAPI, SQLite, Jinja2+HTMX).**
+
+C++ wurde geprüft und verworfen:
+
+| Kriterium | Python | C++ |
+|---|---|---|
+| Laufzeit | venv nötig (oder PyInstaller) | keine, Single-Binary |
+| Entwicklungsgeschwindigkeit | hoch | ~3–5× langsamer |
+| Web/API | FastAPI + OpenAPI aus der Box | Crow/httplib, OpenAPI selbst bauen |
+| YAML/JSON | PyYAML, stdlib | yaml-cpp, nlohmann/json (extern) |
+| SQLite | stdlib | Amalgamation einbinden |
+| QR + PDF-Etiketten | qrcode, reportlab | qrcodegen, PDF-Bibliothek extra |
+| MCP-Server | fertige SDKs | JSON-RPC selbst implementieren |
+| Wartbarkeit durch AI-Agenten | sehr gut (viel Trainingsmaterial) | schlechter (mehr Boilerplate) |
+| Performance | für 10³–10⁶ Teile völlig ausreichend | Overkill |
+
+C++ ist machbar (Crow + SQLite + yaml-cpp + qrcodegen) und brächte ein Single-Binary,
+kostet aber deutlich Entwicklungsaufwand und erschwert genau die Punkte, die im
+Vordergrund stehen: Erweiterbarkeit und AI-Pflege. Alle Dateiformate (Ordner, YAML,
+SQLite) sind sprachunabhängig — bei einem späteren Wechsel würde nur `src/` neu
+geschrieben, die Daten nicht.
+
+## 9. Linux-Kompatibilität (von Tag 1)
+
+- `pathlib` für alle Pfade
+- normalisierte Ordnernamen (Groß-/Kleinschreibung fix) → case-sensitive FS ok
+- keine Windows-APIs; SQLite/YAML/FastAPI plattformunabhängig
+- Root-Pfad pro System neu setzen (`lager root set`)
+
+## 10. Roadmap
+
+| Phase | Inhalt | Status |
+|---|---|---|
+| 0.1 | Konfiguration, bewegbarer Root, Auto-Erkennung, Kategorien, part.yaml, CLI-Grundgerüst, Tests | ✅ |
+| 0.2 | Index (SQLite) + `lager index rebuild` | offen |
+| 1 | Vollständige CLI: Suche, Ein-/Ausbuchungen (movements) | offen |
+| 2 | REST-API (FastAPI, OpenAPI) + Web-UI + Dateiauslieferung | offen |
+| 3 | MCP-Server + QR-Etiketten (PDF) | offen |
+| 4 | PWA/Smartphone (installierbar, QR-Scanner) | offen |
+| 5 | Linux-Härtung, Packaging, Backup | offen |
+
+## 11. Entscheidungsprotokoll
+
+| ID | Datum | Entscheidung |
+|---|---|---|
+| D1 | 2026-11-09 | Tech-Stack Python (C++ geprüft, verworfen — Begründung s. o.) |
+| D2 | 2026-11-11 | `lager_root` in `config.yaml`, Auto-Erkennung, validierte Struktur |
+| D3 | 2026-11-11 | Kategorien in `categories.yaml`, anlegbar per CLI/Agent, nichts hardcodiert |
+| D4 | 2026-11-11 | part.yaml-Schema v1 (s. o.); Kategorie kommt aus dem Pfad |
+| D5 | 2026-11-11 | Ordner mit `_`/`.`-Präfix werden vom Scanner ignoriert |

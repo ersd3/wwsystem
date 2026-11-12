@@ -1,0 +1,10 @@
+# Kategorien des Lagers.
+# id    = Ordnername (normalisiert: a-z, 0-9, '-')
+# label = Anzeigename (darf Umlaute enthalten)
+# Reihenfolge = Anzeige-Reihenfolge.
+# Anlegen: lager category add <id> [--label "Anzeigename"]
+categories:
+- id: mosfets
+  label: MOSFETs
+- id: widerstaende
+  label: Widerstände

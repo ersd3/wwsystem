@@ -1,0 +1,18 @@
+# part.yaml — Metadaten eines Bauteils
+# part       kanonische Bezeichnung (= Ordnername)
+# name       Beschreibung (menschlich)
+# aliases    weitere Suchbegriffe (Bestell-, Hersteller-, Alt-Bezeichnungen)
+# quantity   aktuelle Lagermenge
+# unit       Mengeneinheit
+# location   Lagerfach (frei wählbar, z. B. "A-03-2")
+# tags       freie Schlagwörter
+# Kategorie  kommt aus dem Pfad (1. Ebene unter lager_root) — nicht hier speichern
+part: BEZEICHNUNG
+name: ''
+manufacturer: ''
+aliases: []
+quantity: 0
+unit: Stk
+location: ''
+tags: []
+notes: ''

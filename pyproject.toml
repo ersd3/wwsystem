@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lager"
+version = "0.1.0"
+description = "Bauteile-Lagersystem: offene Ordnerstruktur, bewegbarer Root, Kategorien und part.yaml (CLI)"
+requires-python = ">=3.9"
+dependencies = [
+    "typer>=0.9",
+    "PyYAML>=6.0",
+    "pytest>=7.0",
+]
+
+[project.scripts]
+lager = "lager.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
