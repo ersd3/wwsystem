@@ -1,6 +1,6 @@
 # Konzept — Bauteile-Lagersystem ("Lager")
 
-Stand: 2026-11-12 · Version 0.3.0 · Status: Phase 0.1, 0.2 und 1 umgesetzt · Phase 2 (Server mit Handy-Seiten) läuft, inklusive Bauteile anlegen und Dateien hochladen · Stand je Phase: §10
+Stand: 2026-11-12 · Version 0.4.0 · Status: Phase 0.1, 0.2, 1 und 2 umgesetzt (Phase 2 noch nicht am echten Handy geprüft) · Als Nächstes: Phase 3 (QR-Etiketten) · Stand je Phase: §10
 
 ## 1. Ziel
 
@@ -165,6 +165,7 @@ Drei Wege führen zum selben Ergebnis im Ordner: die CLI, die Web-Oberfläche un
 | Kategorie anlegen | `lager category add <id> --label "…"` | im Formular „Neues Bauteil“, Feld „neue Kategorie“ |
 | Dateien hinzufügen | `lager part attach <BEZEICHNUNG> <datei> …` (`--move` verschiebt) | Bauteilseite, „Dateien hinzufügen“ |
 | Datenblatt öffnen | `lager part open <BEZEICHNUNG>` (`--file`, `--folder`) | Knopf „PDF“ in der Trefferliste |
+| Angaben ändern | `lager part edit <BEZEICHNUNG> --location B-07 …` | Bauteilseite, „Angaben bearbeiten“ |
 
 Regeln:
 
@@ -217,6 +218,10 @@ Nach einem Update des Programms den Server neu starten.
 | `/` | Suche, Kategorien, Trefferliste; Knopf „PDF“ öffnet das Datenblatt direkt |
 | `/p/<BEZEICHNUNG>` | Bauteilseite: Datenblätter, Angaben, weitere Dateien, „Dateien hinzufügen“ |
 | `/neu` | Formular „Neues Bauteil“, auf Wunsch mit neuer Kategorie und Dateien |
+| `/p/<BEZEICHNUNG>/bearbeiten` | Angaben eines Bauteils ändern (Bezeichnung und Kategorie bleiben, sie kommen aus dem Ordner) |
+| `/suche?q=…` | nur die Trefferliste; `static/app.js` lädt sie beim Tippen im Suchfeld nach |
+| `/anmelden`, `POST /abmelden` | Anmelden im Browser, wenn ein `write_token` gesetzt ist |
+| `PATCH /api/v1/parts/<BEZEICHNUNG>` | Angaben ändern; nur mitgeschickte Felder werden gesetzt |
 | `/files/<pfad wie im Lager-Ordner>` | Datei ausliefern; PDF und Bilder öffnet der Browser, alles andere wird geladen |
 | Fußbereich jeder Seite | Zahl der Bauteile und Dateien, Zeitpunkt des Einlesens, Lager-Ordner, „Ordner neu einlesen“, „Lager-Ordner ändern“ |
 | `/api/v1/parts?q=…`, `/api/v1/parts/<BEZEICHNUNG>` | Suche und Bauteil als JSON |
@@ -240,16 +245,21 @@ Schutz (D13):
   `127.0.0.1` oder `localhost`). Andere Geräte sehen den Pfad nur.
 - **Ohne `write_token`** darf jedes Gerät im WLAN Bauteile anlegen, Dateien hochladen und
   neu einlesen. Das ist für das private Netz so gewollt.
-- **Mit `write_token`** verlangen alle schreibenden Aufrufe das Kopffeld `X-Lager-Token`.
-  Die Web-Seiten blenden die Schreib-Funktionen dann aus; ein Anmelden im Browser gibt es noch nicht.
+- **Mit `write_token`** verlangen alle schreibenden Aufrufe das Kopffeld `X-Lager-Token` (API)
+  oder eine Anmeldung im Browser (D14): Unter `/anmelden` gibt man den Token einmal ein, der
+  Browser merkt ihn sich 30 Tage als Cookie. Ohne Anmeldung blenden die Seiten die
+  Schreib-Funktionen aus. Ohne HTTPS geht der Token unverschlüsselt durchs WLAN.
 - **SVG-Dateien** werden nicht im Browser geöffnet, sondern geladen, weil sie Skripte enthalten können.
 
 - Ausgeliefert werden nur Dateien, die im Index stehen. Andere Pfade ergeben „nicht gefunden“.
 - CLI (`--json`) und API geben dieselben Daten aus (D10): Datensätze mit den englischen
   Feldnamen aus Schema und `part.yaml` (`part`, `name`, `files`, …), Rahmenfelder wie in der
   bisherigen CLI auf Deutsch (`suche`, `anzahl`, `treffer`, `teile`, `warnungen`).
-- Noch nicht enthalten: vorhandene Bauteile über das Web bearbeiten oder löschen, Suche
-  während des Tippens (HTMX), QR-Etiketten, HTTPS.
+- Die Suche beim Tippen kommt ohne zusätzliche Bibliothek aus (kein HTMX): ein kleines Skript
+  (`static/app.js`) holt `/suche` und tauscht die Trefferliste aus. Ohne JavaScript geht die
+  Suche weiter über den Knopf.
+- Noch nicht enthalten: Bauteile löschen, umbenennen oder in eine andere Kategorie
+  verschieben (das geht im Explorer, danach neu einlesen), QR-Etiketten, HTTPS.
 
 ### Mobile App = Web-Oberfläche (D8)
 
@@ -344,7 +354,7 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 | 0.1 | Konfiguration, bewegbarer Root, Auto-Erkennung, Kategorien, part.yaml, CLI-Grundgerüst, Tests | ✅ |
 | 0.2 | SQLite-Index über Bauteile und ihre Dateien (Datenblätter) + `lager index rebuild` | ✅ |
 | 1 | Suche und Datenblätter in der CLI: Bauteil suchen, Dateien anzeigen, neues Datenblatt einem Bauteil zuordnen | ✅ `part search` (auch in Dateinamen), `part attach`, `part open` (§6a, §6b) |
-| 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | Läuft: Suche, Bauteilseite, Dateien, Bauteil anlegen, Dateien hochladen, Lager-Ordner ändern, Rückmeldung beim Einlesen. Offen: am echten Handy im WLAN prüfen, vorhandene Bauteile bearbeiten, Suche beim Tippen, Anmelden bei gesetztem `write_token` |
+| 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | ✅ Suche (auch beim Tippen), Bauteilseite, Dateien, Bauteil anlegen und bearbeiten, Dateien hochladen, Lager-Ordner ändern, Rückmeldung beim Einlesen, Anmelden bei Schreibschutz. Offen: Prüfung am echten Handy im WLAN (Akzeptanz) |
 | 3 | Handy-Komfort: QR-Etiketten (PDF); später HTTPS mit Kamera-Scanner und Startbildschirm (PWA) | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
 | 5 | Mengen ein- und ausbuchen mit Verlauf (`movements`) | offen |
@@ -410,3 +420,4 @@ Symbole erscheinen direkt in KiCad.
 | D11 | 2026-11-12 | Die Bezeichnung eines Bauteils ist im ganzen Lager eindeutig, nicht nur je Kategorie (s. §6b) |
 | D12 | 2026-11-12 | Aufgenommene Dateien werden nach Art einsortiert und überschreiben nie eine vorhandene Datei (s. §6b) |
 | D13 | 2026-11-12 | Lager-Ordner im Web nur am Server-PC änderbar; übrige Schreibwege ohne `write_token` im WLAN offen (s. §7) |
+| D14 | 2026-11-12 | Anmelden im Browser über den `write_token` als Cookie (30 Tage); Suche beim Tippen mit eigenem kleinem Skript statt HTMX (s. §7) |

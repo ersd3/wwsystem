@@ -119,3 +119,49 @@ def create_part(root: Path, category_id: str, raw_id: str, data: dict) -> Path:
         encoding="utf-8",
     )
     return pdir
+
+
+# Felder, die sich nachträglich ändern lassen. `part` ist der Ordnername und bleibt fest.
+TEXT_FIELDS = ("name", "manufacturer", "unit", "location", "notes")
+LIST_FIELDS = ("aliases", "tags")
+EDITABLE_FIELDS = TEXT_FIELDS + LIST_FIELDS + ("quantity",)
+
+
+def update_part(root: Path, raw_id: str, changes: dict) -> Path:
+    """Ändert Felder in der part.yaml eines Bauteils und gibt seinen Ordner zurück.
+
+    Nur die in `changes` genannten Felder werden gesetzt; alle anderen Einträge der
+    Datei bleiben erhalten, auch unbekannte. Die Kopfkommentare werden neu geschrieben.
+    """
+    unknown = sorted(set(changes) - set(EDITABLE_FIELDS))
+    if unknown:
+        raise ValueError(f"Diese Felder lassen sich nicht ändern: {', '.join(unknown)}")
+    pdir = find_part_dir(root, raw_id)
+    if pdir is None:
+        raise ValueError(f"Teil nicht gefunden: {raw_id}")
+    path = pdir / "part.yaml"
+    try:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8-sig")) or {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as e:
+        raise ValueError(f"part.yaml von {pdir.name} ist nicht lesbar: {e}") from e
+    if not isinstance(doc, dict):
+        raise ValueError(f"part.yaml von {pdir.name} enthält keine Felder.")
+
+    for key, value in changes.items():
+        if key == "quantity":
+            try:
+                doc[key] = int(value)
+            except (TypeError, ValueError):
+                raise ValueError("Die Menge muss eine ganze Zahl sein.") from None
+        elif key in LIST_FIELDS:
+            items = [str(item).strip() for item in (value or [])]
+            doc[key] = list(dict.fromkeys(item for item in items if item))
+        else:
+            doc[key] = "" if value is None else str(value).strip()
+    doc["part"] = pdir.name
+
+    path.write_text(
+        HEADER + yaml.safe_dump(doc, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    return pdir

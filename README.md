@@ -70,7 +70,11 @@ Dann im Browser `http://127.0.0.1:8080` öffnen. Die API-Beschreibung steht unte
 - **Suchen:** Suchfeld oben; der Knopf „PDF“ in der Trefferliste öffnet das Datenblatt direkt.
 - **Neues Bauteil:** Knopf „+“ oben. Im Formular lassen sich auch eine neue Kategorie anlegen
   und gleich Dateien mitgeben.
+- **Angaben ändern:** auf der Seite des Bauteils, „Angaben bearbeiten“. In der CLI:
+  `lager part edit IRLZ44N --location B-07 --quantity 12`.
 - **Dateien hinzufügen:** auf der Seite des Bauteils, ganz unten.
+- **Schreibschutz:** Ist in der `config.yaml` ein `write_token` gesetzt, muss man sich im
+  Browser einmal unter „Anmelden“ (Fußbereich) mit diesem Token anmelden, um zu ändern.
 - **Ordner neu einlesen:** im Fußbereich. Nötig, wenn Dateien im Explorer geändert wurden.
   Danach zeigt die Seite, was gefunden wurde.
 - **Lager-Ordner ändern:** im Fußbereich, nur an dem PC, auf dem der Server läuft.

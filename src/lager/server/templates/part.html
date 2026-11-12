@@ -8,6 +8,9 @@
   <article class="detail">
     <h1>{{ teil.part }}</h1>
     {% if teil.name %}<p class="lead">{{ teil.name }}</p>{% endif %}
+    {% if not schreibschutz %}
+    <p><a class="quiet-link" href="/p/{{ teil.part | urlencode }}/bearbeiten">Angaben bearbeiten</a></p>
+    {% endif %}
 
     {% set sheets = teil.files | selectattr("kind", "equalto", "datasheet") | list %}
     {% set others = teil.files | rejectattr("kind", "equalto", "datasheet") | list %}

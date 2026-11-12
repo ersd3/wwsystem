@@ -1,0 +1,43 @@
+{# Kategorien und Trefferliste. Wird in index.html eingebunden und von /suche einzeln geliefert. #}
+<nav class="chips" aria-label="Kategorien">
+  <a class="chip{% if not kategorie %} active{% endif %}"
+     href="/{% if q %}?q={{ q | urlencode }}{% endif %}">Alle</a>
+  {% for k in kategorien %}
+  <a class="chip{% if kategorie == k.id %} active{% endif %}"
+     href="/?kategorie={{ k.id | urlencode }}{% if q %}&amp;q={{ q | urlencode }}{% endif %}">
+    {{ k.label }} <span class="count">{{ k.parts }}</span>
+  </a>
+  {% endfor %}
+</nav>
+
+{% if treffer %}
+<p class="summary">
+  {{ treffer | length }} {{ "Bauteil" if treffer | length == 1 else "Bauteile" }}{% if q %} für „{{ q }}“{% endif %}
+</p>
+<ul class="cards">
+  {% for t in treffer %}
+  <li class="card">
+    <a class="card-main" href="/p/{{ t.part | urlencode }}">
+      <span class="part">{{ t.part }}</span>
+      {% if t.name %}<span class="name">{{ t.name }}</span>{% endif %}
+      <span class="meta">
+        {{ t.category_label }}{% if t.subcategory %} / {{ t.subcategory }}{% endif %}{% if t.location %} · Fach {{ t.location }}{% endif %}
+      </span>
+    </a>
+    {# Das erste Datenblatt direkt; gibt es mehrere, führt "+n" zur Bauteilseite. #}
+    {% set sheets = t.files | selectattr("kind", "equalto", "datasheet") | list %}
+    {% if sheets %}
+    <a class="pdf" href="/files/{{ (t.path ~ '/' ~ sheets[0].path) | urlencode }}" target="_blank" rel="noopener"
+       title="{{ sheets[0].path }}">PDF</a>
+    {% if sheets | length > 1 %}
+    <a class="more" href="/p/{{ t.part | urlencode }}" title="Alle Datenblätter anzeigen">+{{ sheets | length - 1 }}</a>
+    {% endif %}
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty">
+  {% if q %}Keine Treffer für „{{ q }}“.{% else %}In dieser Auswahl gibt es noch keine Bauteile.{% endif %}
+</p>
+{% endif %}

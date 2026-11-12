@@ -94,6 +94,10 @@ button.quiet { color: var(--accent); background: transparent; border: 1px solid 
 .stack .check input { margin-top: 4px; }
 .hint { margin: 0; color: var(--muted); font-size: .85rem; }
 
+.buttons { display: flex; gap: 16px; align-items: center; margin-top: 14px; }
+.buttons button { margin-top: 0; }
+.quiet-link { display: inline-block; padding: 10px 0; }
+
 .settings { margin: 12px 0; }
 .settings summary { cursor: pointer; padding: 10px 0; color: var(--accent); }
 

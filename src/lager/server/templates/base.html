@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Lager{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
+  <script src="{{ url_for('static', path='app.js') }}" defer></script>
 </head>
 <body>
   <header class="top">
@@ -64,6 +65,12 @@
     {% else %}
     <p class="small">Der Lager-Ordner lässt sich nur an dem PC ändern, auf dem der Server läuft.</p>
     {% endif %}
+    {% endif %}
+    {% if token_aktiv %}
+    <p class="small">
+      {% if schreibschutz %}Schreibschutz aktiv · <a href="/anmelden">Anmelden</a>
+      {% else %}Angemeldet · <a href="/anmelden">Abmelden</a>{% endif %}
+    </p>
     {% endif %}
     <p class="small">Lager {{ version }} · <a href="/docs">API</a></p>
   </footer>

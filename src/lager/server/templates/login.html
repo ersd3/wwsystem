@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Anmelden – Lager{% endblock %}
+{% block main %}
+  <article class="detail">
+    <h1>Anmelden</h1>
+    {% if not token_aktiv %}
+    <p class="empty">Es ist kein Schreibschutz eingerichtet. Eine Anmeldung ist nicht nötig.</p>
+    {% elif not schreibschutz %}
+    <p class="empty">Dieser Browser ist angemeldet und darf Bauteile anlegen und ändern.</p>
+    <form action="/abmelden" method="post"><button type="submit" class="quiet">Abmelden</button></form>
+    {% else %}
+    <form action="/anmelden" method="post" class="stack">
+      <label for="token">Token (der Wert von <span class="path">write_token</span> in der config.yaml)</label>
+      <input id="token" type="password" name="token" required autocomplete="off">
+      <p class="hint">Der Browser merkt sich die Anmeldung 30 Tage.</p>
+      <button type="submit">Anmelden</button>
+    </form>
+    {% endif %}
+  </article>
+{% endblock %}

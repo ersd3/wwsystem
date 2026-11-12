@@ -27,8 +27,8 @@ from .. import root as rootmod
 from .. import search as searchmod
 from ..config import CONFIG_PATH, load_config, set_lager_root
 from .schemas import (
-    Category, Health, IndexStatus, NewCategory, NewPart, Part, RebuildResult, SearchResult,
-    UploadResult,
+    Category, Health, IndexStatus, NewCategory, NewPart, Part, PartChanges, RebuildResult,
+    SearchResult, UploadResult,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -45,6 +45,9 @@ KIND_LABELS = {
 # SVG fehlt bewusst: Eine SVG-Datei kann Skripte enthalten.
 INLINE_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "gif", "webp"}
 LOCAL_HOSTS = {"127.0.0.1", "::1", "localhost"}
+# Cookie, das der Browser nach dem Anmelden mit dem write_token bekommt (30 Tage).
+TOKEN_COOKIE = "lager_token"
+TOKEN_COOKIE_MAX_AGE = 30 * 24 * 3600
 # Dateifeld eines HTML-Formulars. Bleibt es leer, schickt der Browser einen
 # leeren Text statt einer Datei mit; deshalb ist hier auch str erlaubt.
 FormFiles = List[Union[UploadFile, str]]
@@ -81,17 +84,42 @@ def open_index(request: Request) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _write_token(request: Request) -> str:
+    return str(request.app.state.cfg.get("write_token") or "")
+
+
+def _token_matches(request: Request, value: Optional[str]) -> bool:
+    token = _write_token(request)
+    return bool(token) and secrets.compare_digest((value or "").encode(), token.encode())
+
+
+def may_write(request: Request, header_token: Optional[str] = None) -> bool:
+    """Darf diese Anfrage schreiben?
+
+    Ohne `write_token` in der config.yaml immer. Mit Token nur, wenn er im Kopffeld
+    X-Lager-Token steht (API) oder der Browser sich angemeldet hat (Cookie).
+    """
+    if not _write_token(request):
+        return True
+    return _token_matches(request, header_token) or _token_matches(
+        request, request.cookies.get(TOKEN_COOKIE)
+    )
+
+
 def write_protected(request: Request) -> bool:
-    return bool(str(request.app.state.cfg.get("write_token") or ""))
+    """Für die Seiten: Schreib-Funktionen ausblenden?"""
+    return not may_write(request)
 
 
 def require_write(
     request: Request, x_lager_token: Optional[str] = Header(default=None)
 ) -> None:
     """Schreibende Aufrufe brauchen den Token, falls in config.yaml einer gesetzt ist."""
-    token = str(request.app.state.cfg.get("write_token") or "")
-    if token and not secrets.compare_digest((x_lager_token or "").encode(), token.encode()):
-        raise HTTPException(403, "Schreibzugriff nur mit gültigem Kopffeld X-Lager-Token.")
+    if not may_write(request, x_lager_token):
+        raise HTTPException(
+            403,
+            "Schreibzugriff nur mit gültigem Kopffeld X-Lager-Token oder nach dem Anmelden im Browser.",
+        )
 
 
 def is_local(request: Request) -> bool:
@@ -251,6 +279,26 @@ def api_part(request: Request, part: str) -> dict:
     return found
 
 
+@api.patch(
+    "/parts/{part}",
+    response_model=Part,
+    dependencies=[Depends(require_write)],
+    summary="Angaben eines Bauteils ändern (nur die mitgeschickten Felder)",
+)
+def api_update_part(request: Request, part: str, body: PartChanges) -> dict:
+    if _part_dir(request, part) is None:
+        raise HTTPException(404, f"Teil nicht gefunden: {part}")
+    try:
+        part_dir = partmod.update_part(
+            request.app.state.root, part, body.model_dump(exclude_unset=True)
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _rebuild(request)
+    with open_index(request) as conn:
+        return searchmod.get_part(conn, part_dir.name)
+
+
 @api.post(
     "/parts/{part}/files",
     response_model=UploadResult,
@@ -347,6 +395,7 @@ def _page_context(request: Request, conn: sqlite3.Connection) -> dict:
         "kategorien": searchmod.list_categories(conn),
         "index": indexer.status(request.app.state.root),
         "schreibschutz": write_protected(request),
+        "token_aktiv": bool(_write_token(request)),
         "lokal": is_local(request),
         "lager_root": str(request.app.state.root),
         "version": __version__,
@@ -401,9 +450,112 @@ def page_search(request: Request, q: str = "", kategorie: str = "", hinweis: str
     return _search_page(request, q, kategorie, hinweis=hinweis)
 
 
+@pages.get("/suche", response_class=HTMLResponse)
+def page_search_fragment(request: Request, q: str = "", kategorie: str = ""):
+    """Nur die Trefferliste, für die Suche beim Tippen (static/app.js)."""
+    with open_index(request) as conn:
+        context = {
+            "q": q,
+            "kategorie": kategorie,
+            "kategorien": searchmod.list_categories(conn),
+            "treffer": searchmod.search(conn, q, kategorie or None, 100),
+        }
+    return templates.TemplateResponse(request, "_results.html", context)
+
+
 @pages.get("/p/{part}", response_class=HTMLResponse)
 def page_part(request: Request, part: str):
     return _part_page(request, part)
+
+
+def _edit_page(request: Request, part: str, form: Optional[dict] = None, meldung: str = "", status: int = 200):
+    with open_index(request) as conn:
+        context = _page_context(request, conn)
+        found = searchmod.get_part(conn, part)
+    if found is None:
+        return _part_page(request, part)
+    if form is None:
+        form = {
+            "name": found["name"], "hersteller": found["manufacturer"],
+            "lagerfach": found["location"], "menge": str(found["quantity"]),
+            "einheit": found["unit"], "tags": ", ".join(found["tags"]),
+            "aliase": ", ".join(found["aliases"]), "notizen": found["notes"],
+        }
+    context.update({"teil": found, "form": form, "meldung": meldung})
+    return templates.TemplateResponse(request, "edit.html", context, status_code=status)
+
+
+@pages.get("/p/{part}/bearbeiten", response_class=HTMLResponse)
+def page_edit(request: Request, part: str):
+    return _edit_page(request, part)
+
+
+@pages.post("/p/{part}/bearbeiten", dependencies=[Depends(require_write)])
+def page_edit_submit(
+    request: Request,
+    part: str,
+    name: str = Form(""),
+    hersteller: str = Form(""),
+    lagerfach: str = Form(""),
+    menge: str = Form("0"),
+    einheit: str = Form(""),
+    tags: str = Form(""),
+    aliase: str = Form(""),
+    notizen: str = Form(""),
+):
+    form = {
+        "name": name, "hersteller": hersteller, "lagerfach": lagerfach, "menge": menge,
+        "einheit": einheit, "tags": tags, "aliase": aliase, "notizen": notizen,
+    }
+    if _part_dir(request, part) is None:
+        return _part_page(request, part)
+    try:
+        part_dir = partmod.update_part(
+            request.app.state.root,
+            part,
+            {
+                "name": name, "manufacturer": hersteller, "location": lagerfach,
+                "quantity": menge.strip() or "0", "unit": einheit,
+                "tags": _split_list(tags), "aliases": _split_list(aliase), "notes": notizen,
+            },
+        )
+    except ValueError as e:
+        return _edit_page(request, part, form, str(e), 400)
+    _rebuild(request)
+    return RedirectResponse(f"/p/{quote(part_dir.name)}", status_code=303)
+
+
+@pages.get("/anmelden", response_class=HTMLResponse)
+def page_login(request: Request):
+    return _login_page(request)
+
+
+def _login_page(request: Request, meldung: str = "", status: int = 200):
+    with open_index(request) as conn:
+        context = _page_context(request, conn)
+    context["meldung"] = meldung
+    return templates.TemplateResponse(request, "login.html", context, status_code=status)
+
+
+@pages.post("/anmelden")
+def page_login_submit(request: Request, token: str = Form("")):
+    """Prüft den write_token und merkt ihn im Browser als Cookie."""
+    if not _write_token(request):
+        return RedirectResponse("/", status_code=303)
+    if not _token_matches(request, token.strip()):
+        return _login_page(request, "Der Token stimmt nicht.", 403)
+    response = RedirectResponse("/", status_code=303)
+    response.set_cookie(
+        TOKEN_COOKIE, token.strip(), max_age=TOKEN_COOKIE_MAX_AGE, httponly=True, samesite="lax"
+    )
+    return response
+
+
+@pages.post("/abmelden")
+def page_logout(request: Request):
+    response = RedirectResponse("/", status_code=303)
+    response.delete_cookie(TOKEN_COOKIE)
+    return response
 
 
 @pages.post("/p/{part}/dateien", dependencies=[Depends(require_write)])

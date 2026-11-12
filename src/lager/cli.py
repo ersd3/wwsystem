@@ -12,7 +12,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import typer
 
@@ -423,6 +423,42 @@ def part_open(
     except OSError as e:
         _fail(f"Konnte nicht geöffnet werden: {target} ({e})")
     _print({"teil": pdir.name, "geoeffnet": str(target)}, as_json)
+
+
+@part_app.command("edit")
+def part_edit(
+    bezeichnung: str = typer.Argument(..., help="Bauteil-Bezeichnung, z. B. IRLZ44N"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Beschreibung"),
+    manufacturer: Optional[str] = typer.Option(None, "--manufacturer", "-m", help="Hersteller"),
+    quantity: Optional[int] = typer.Option(None, "--quantity", "-q", help="Menge"),
+    unit: Optional[str] = typer.Option(None, "--unit", help="Mengeneinheit, z. B. Stk"),
+    location: Optional[str] = typer.Option(None, "--location", "-l", help="Lagerfach"),
+    tags: Optional[str] = typer.Option(None, "--tags", help="Kommagetrennt; ersetzt die bisherigen"),
+    aliases: Optional[str] = typer.Option(None, "--aliases", help="Kommagetrennt; ersetzt die bisherigen"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Notizen"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Ändert Angaben eines Bauteils. Nur die genannten Felder werden gesetzt ("" leert ein Feld)."""
+    root = _require_root()
+    changes: dict = {}
+    for key, value in (
+        ("name", name), ("manufacturer", manufacturer), ("quantity", quantity),
+        ("unit", unit), ("location", location), ("notes", notes),
+    ):
+        if value is not None:
+            changes[key] = value
+    if tags is not None:
+        changes["tags"] = [t.strip() for t in tags.split(",")]
+    if aliases is not None:
+        changes["aliases"] = [a.strip() for a in aliases.split(",")]
+    if not changes:
+        _fail("Nichts zu ändern. Mindestens eine Option angeben, z. B. --name oder --location.")
+    try:
+        pdir = partmod.update_part(root, bezeichnung, changes)
+    except ValueError as e:
+        _fail(str(e))
+    _refresh_index(root)
+    _print({"teil": pdir.name, "ordner": str(pdir), "geaendert": sorted(changes)}, as_json)
 
 
 @part_app.command("search")

@@ -50,6 +50,19 @@ class NewPart(BaseModel):
     notes: str = ""
 
 
+class PartChanges(BaseModel):
+    """Nur die mitgeschickten Felder werden geändert."""
+
+    name: Optional[str] = None
+    manufacturer: Optional[str] = None
+    quantity: Optional[int] = None
+    unit: Optional[str] = None
+    location: Optional[str] = None
+    aliases: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+    notes: Optional[str] = None
+
+
 class NewCategory(BaseModel):
     id: str
     label: str = ""
