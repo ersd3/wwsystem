@@ -25,6 +25,7 @@ Ein System zur Pflege einer großen Sammlung elektronischer Bauteile
 | P5 | **Beweglicher Root:** Der Lager-Pfad ist eine einzige Konfig-Eigenschaft (`lager_root` in `config.yaml`). Die Struktur wird automatisch erkannt und validiert. |
 | P6 | **Nichts hardcodiert:** Kategorien, Dateitypen, Pfade — alles Daten/Konfiguration, anpassbar per CLI (also auch per AI-Agent). |
 | P7 | **Standards:** SQLite, REST/OpenAPI, YAML, QR = normale URL, PDF, KiCad-Originalformate. |
+| P8 | **Sprachneutrale Daten:** Datenbank und Dateien enthalten nichts Python-Spezifisches. Jedes Programm in jeder Sprache kann sie mit Standardwerkzeugen lesen und schreiben (Regeln in §8, D6). |
 
 ## 3. Ordnerstruktur (Vertrag)
 
@@ -129,6 +130,7 @@ Schnittstellen:
 ## 8. Technologie-Entscheidung
 
 **Entscheidung D1: Python 3.11+ (Typer, PyYAML; später FastAPI, SQLite, Jinja2+HTMX).**
+Von Lukas am 2026-11-12 bestätigt, nach einer zweiten Prüfung von C++.
 
 C++ wurde geprüft und verworfen:
 
@@ -149,6 +151,35 @@ kostet aber deutlich Entwicklungsaufwand und erschwert genau die Punkte, die im
 Vordergrund stehen: Erweiterbarkeit und AI-Pflege. Alle Dateiformate (Ordner, YAML,
 SQLite) sind sprachunabhängig — bei einem späteren Wechsel würde nur `src/` neu
 geschrieben, die Daten nicht.
+
+Ergänzungen aus der zweiten Prüfung (2026-11-12):
+
+- Für C++ gibt es kein offizielles MCP-SDK, nur Community-Bibliotheken.
+- OpenAPI aus dem Code erzeugt in C++ nur oatpp; sonst wird die Beschreibung von Hand gepflegt.
+- Umlaute unter Windows (Pfade, Konsole, Argumente) müssen in C++ von Hand auf UTF-8 gebracht werden.
+- Der Entwicklungsrechner ist nicht schwach (Ryzen 9, 31 GB RAM). Die Leistung der Hardware
+  ist kein Argument für oder gegen eine der beiden Sprachen.
+- Lokale Agenten (LM Studio) pflegen künftig nur die Daten über CLI/MCP, nicht den Code.
+
+### Sprachneutrale Datenhaltung (D6)
+
+Python ist die Sprache des Programms, nicht der Daten. Für alles, was auf der Platte
+landet oder über eine Schnittstelle geht, gilt:
+
+- **SQLite-Schema als reines SQL** in einer eigenen Datei (`schema.sql`), nicht aus einem
+  ORM erzeugt. Keine ORM-Hilfstabellen.
+- **Nur Standardtypen:** `TEXT` (UTF-8), `INTEGER`, `REAL`. Zeitpunkte als ISO-8601-Text
+  in UTC (`2026-11-12T14:03:00Z`), Wahrheitswerte als `0`/`1`.
+- **Listen** (Aliase, Tags) als eigene Tabellen. Keine serialisierten Python-Objekte:
+  kein `pickle`, kein `repr()`.
+- **Schema-Version** in `PRAGMA user_version`; Schemaänderungen als nummerierte `.sql`-Dateien.
+- **Regeln in der Datenbank**, wo möglich (`NOT NULL`, `CHECK`, `FOREIGN KEY`), damit sie
+  auch für andere Programme gelten.
+- **YAML ohne sprachspezifische Tags** (nur `safe_load`/`safe_dump`), JSON nach Standard.
+- **Volltextsuche**, falls nötig, über das in SQLite eingebaute FTS5.
+
+Prüfstein: Die Datenbank muss sich mit dem `sqlite3`-Kommandozeilenprogramm oder einem
+beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 
 ## 9. Linux-Kompatibilität (von Tag 1)
 
@@ -178,3 +209,5 @@ geschrieben, die Daten nicht.
 | D3 | 2026-11-11 | Kategorien in `categories.yaml`, anlegbar per CLI/Agent, nichts hardcodiert |
 | D4 | 2026-11-11 | part.yaml-Schema v1 (s. o.); Kategorie kommt aus dem Pfad |
 | D5 | 2026-11-11 | Ordner mit `_`/`.`-Präfix werden vom Scanner ignoriert |
+| D1 | 2026-11-12 | Python von Lukas bestätigt (C++ ein zweites Mal geprüft, verworfen) |
+| D6 | 2026-11-12 | Sprachneutrale Datenhaltung: Datenbank und Dateien ohne Python-Spezifisches (s. §8) |

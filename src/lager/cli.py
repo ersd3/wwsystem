@@ -7,6 +7,7 @@ Meldung auf stderr.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import typer
@@ -33,6 +34,25 @@ part_app = typer.Typer(help="Bauteile verwalten (part.yaml).")
 app.add_typer(root_app, name="root")
 app.add_typer(cat_app, name="category")
 app.add_typer(part_app, name="part")
+
+
+def force_utf8_output() -> None:
+    """Stellt stdout und stderr fest auf UTF-8.
+
+    Bei umgeleiteter Ausgabe nimmt Python unter Windows sonst die lokale
+    Codepage (z. B. Windows-1252). Umlaute kämen dann bei anderen Programmen
+    kaputt an, und JSON muss laut Standard UTF-8 sein.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
+def main() -> None:
+    """Einstiegspunkt für `lager` und `python -m lager`."""
+    force_utf8_output()
+    app()
 
 
 def _print(data: dict, as_json: bool) -> None:

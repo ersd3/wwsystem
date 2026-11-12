@@ -20,7 +20,8 @@ Alles läuft über einen gemeinsamen Kern (REST/OpenAPI), bedienbar per CLI und 
 - Sprache: **Deutsch** für alle Kommunikation, UI, Docs, CLI-Meldungen. Code-Identifier auf Englisch.
 - Arbeitsordner: `N:\lukas\Downloads\Wirtschaftssystem`
 - Jetzt Windows 11, später Linux. `pathlib` nutzen, keine Windows-Only-APIs.
-- Hardware schwach: kein Docker, kleines venv mit ~5 reinen Python-Paketen ok.
+- Der Entwicklungsrechner ist nicht schwach (Ryzen 9, 31 GB RAM). Die frühere Notiz „Hardware schwach“ bezog sich nur auf die Laufzeit des lokalen LM-Studio-Agenten. Weiterhin: kein Docker, kleines venv.
+- Lokale Agenten (LM Studio) bearbeiten künftig voraussichtlich nicht mehr den Code, sondern pflegen nur die Daten über CLI/MCP.
 - Wünsche: Standards (SQLite, REST/OpenAPI, YAML, QR=URL), AI-Agent kann System bedienen **und** DB pflegen, bewegbarer Filesystem-Root.
 
 ---
@@ -31,10 +32,11 @@ Alles läuft über einen gemeinsamen Kern (REST/OpenAPI), bedienbar per CLI und 
 - Bewegbarer Filesystem-Root: Pfad in einer Stelle konfigurierbar (`lager_root` in `config.yaml`), bei passender Struktur automatisch erkennen/validieren.
 - Kategorien anlegbar, nicht von Anfang an festgezurrt – auch vom Agenten anlegbar.
 - `part.yaml` nach Agent-Vorschlag gestalten.
-- C++ prüfen.
+- C++ prüfen. → Am 2026-11-12 ein zweites Mal geprüft; Lukas hat **Python bestätigt** (D1).
+- **D6 – Sprachneutrale Datenhaltung:** Datenbanken und Dateien „allgemein“ anlegen, nichts Python-Spezifisches. Regeln stehen in `KONZEPT.md` §8 (Schema als reines SQL, nur Standardtypen, kein ORM, kein `pickle`).
 
 ### Entscheidungen des Agents (nicht final vom Nutzer bestätigt, aber dokumentiert)
-**D1:** Python 3.11+ (Typer, PyYAML; später FastAPI/Uvicorn, Jinja2+HTMX). C++ geprüft und verworfen: 3–5× Aufwand, schwächere AI-Wartbarkeit, Performance irrelevant.
+**D1 (inzwischen bestätigt, s. o.):** Python 3.11+ (Typer, PyYAML; später FastAPI/Uvicorn, Jinja2+HTMX). C++ geprüft und verworfen: Mehraufwand, schwächere AI-Wartbarkeit, Performance irrelevant.
 **D2:** Root-Auflösungsreihenfolge – konfiguriert `lager_root` zuerst (relativ = relativ zum Projektordner), sonst Kandidaten `<project>/lager/`, dann `~/lager/`. Valid wenn `categories.yaml` existiert **oder** Struktur `kategorie/<...>/part.yaml` gefunden.
 **D3:** Kategorien leben in `<root>/categories.yaml` (`id` = normalisierter Ordnername `a-z0-9-`, `label` = Anzeigename mit Umlauten).
 **D4:** `part.yaml` Schema v1: `part`, `name`, `manufacturer`, `aliases[]`, `quantity`, `unit`, `location`, `tags[]`, `notes`. **Kategorie kommt aus dem Pfad (Ebene 1), nie in part.yaml speichern.**
@@ -135,7 +137,18 @@ lager/widerstaende/223-0.1W/part.yaml
   + Fehlerpfade: doppelte Kategorie, unbekanntes Teil → Exit 1
   → **3/3 PASS**
 
-**Nicht verifiziert (weil diese Maschine kein Python hat):**
+**2026-11-12, echtes Python 3.14.10 unter Windows 11 (venv, PyYAML 6.0.3, Typer 0.29.1, pytest 9.2.0)**
+- `pip install -r requirements.txt -e .` → OK
+- `pytest tests -q` → **12/12 PASS**
+- `lager --help`, `status --json`, `part show irlz44n --json`, `category list --json` → OK, Exit 0
+- Fehlerpfad `part show gibtsnicht` → deutsche Meldung auf stderr, Exit 1
+- **Gefunden und behoben:** Bei umgeleiteter Ausgabe (Pipe) schrieb die CLI Umlaute in Windows-1252 statt UTF-8
+  (`Widerstände` → Byte `e4`), was den `--json`-Vertrag für andere Programme brach. Jetzt stellt
+  `cli.main()` stdout und stderr fest auf UTF-8 (`force_utf8_output`). Der Einstiegspunkt ist deshalb
+  `lager.cli:main` statt `lager.cli:app`. Tests dazu in `tests/test_cli.py` → jetzt **14/14 PASS**.
+- Damit sind alle Punkte der folgenden Liste erledigt (auch `git init` + erster Commit, Repository `ersd3/wwsystem`).
+
+**Am 2026-11-11 nicht verifiziert (weil diese Maschine damals kein Python hatte):**
 - `python -m venv .venv && pip install -r requirements.txt -e .`
 - `pytest tests -q` mit echter PyYAML/Typer
 - Konsolen-Einstieg `lager --help` über Typer-Wiring
@@ -168,7 +181,7 @@ Smoke:
 
 ## 7. Roadmap & Akzeptanzkriterien
 
-**0.2 Index (SQLite):** `<root>/.lager/parts.db` mit Tabellen `parts`, `files`, `movements`. `lager index rebuild` idempotent, Bewegungen nie neu aufgebaut.  
+**0.2 Index (SQLite):** `<root>/.lager/parts.db` mit Tabellen `parts`, `files`, `movements`. `lager index rebuild` idempotent, Bewegungen nie neu aufgebaut. Schema nach D6 als reines SQL (`schema.sql`), sprachneutral.  
 **1 CLI vollständig:** `lager stock in/out`, `lager stock list --low N`, `lager part search <begriff>` case-insensitive über part/aliases/name/manufacturer/tags/category. Akzeptanz: `search irlz44n` findet IRLZ44N.  
 **2 Server + Web:** FastAPI, OpenAPI, `/api/v1/...`, Jinja2+HTMX Deutsch, Dateiauslieferung, Optional `X-Lager-Token`. Akzeptanz: Browser-Flow Suche → PDF → Menge funktioniert auf `localhost:8080`.  
 **3 AI + QR:** MCP-Server `lager mcp` (stdio) mit Tools `search_parts`, `get_part`, `create_part`, `update_part`, `set_quantity`, `list_categories`, `add_category`, `reindex`. `lager qr print <teil>` PDF mit QR zu `public_url/p/<id>`. Akzeptanz: LM Studio kann MCP ansteuern, Handy-Kamera öffnet Teilseite.  
@@ -190,7 +203,7 @@ Smoke:
 
 ## 9. Offene Fragen an Lukas
 
-- Ist Python/FastAPI als Stack bestätigt? (C++ wurde auf Empfehlung verworfen, aber nicht explizit bestätigt)
+- ~~Ist Python/FastAPI als Stack bestätigt?~~ Ja, am 2026-11-12 von Lukas bestätigt.
 - Finale Kategorienliste (jetzt Platzhalter)?
 - Lagerfach-Schema (z.B. „A-03-2“)?
 - LAN-Name/IP für `public_url` (für QR, Phase 3)?

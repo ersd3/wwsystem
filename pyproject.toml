@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lager = "lager.cli:app"
+lager = "lager.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

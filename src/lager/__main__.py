@@ -1,4 +1,4 @@
-from lager.cli import app
+from lager.cli import main
 
 if __name__ == "__main__":
-    app()
+    main()
