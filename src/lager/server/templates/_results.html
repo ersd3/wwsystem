@@ -36,6 +36,9 @@
   </li>
   {% endfor %}
 </ul>
+<p class="small">
+  <a href="/etiketten?{% if q %}q={{ q | urlencode }}&amp;{% endif %}{% if kategorie %}kategorie={{ kategorie | urlencode }}{% endif %}">QR-Etiketten für diese Auswahl</a>
+</p>
 {% else %}
 <p class="empty">
   {% if q %}Keine Treffer für „{{ q }}“.{% else %}In dieser Auswahl gibt es noch keine Bauteile.{% endif %}

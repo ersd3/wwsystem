@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}QR-Etiketten – Lager{% endblock %}
+{% block head %}
+  {# Druck: A4 ohne Seitenränder, nur die Bögen. Die Etiketten liegen in mm fest auf dem Bogen. #}
+  <style>
+    @page { size: A4; margin: 0; }
+    @media print {
+      html, body { background: #fff; }
+      .top, footer, .noprint, .notice { display: none !important; }
+      main { max-width: none; margin: 0; padding: 0; }
+      .sheets { overflow: visible; padding: 0; }
+      .sheet { margin: 0; box-shadow: none; break-after: page; page-break-after: always; }
+      .sheet:last-child { break-after: auto; page-break-after: auto; }
+    }
+  </style>
+{% endblock %}
+{% block main %}
+  <article class="detail noprint">
+    <h1>QR-Etiketten</h1>
+    <p class="lead-small">
+      Ein Etikett je Bauteil. Der QR-Code öffnet am Handy die Seite des Bauteils.
+      Auf normalem A4-Papier drucken und an den gestrichelten Linien ausschneiden.
+    </p>
+
+    <form action="/etiketten" method="get" class="stack">
+      {% if auswahl.teile %}
+      {% for name in auswahl.teile %}<input type="hidden" name="teil" value="{{ name }}">{% endfor %}
+      <p>Ausgewählt: <strong>{{ auswahl.teile | join(", ") }}</strong> · <a href="/etiketten">andere Auswahl</a></p>
+      {% else %}
+      <label for="lq">Bauteile (Suchbegriff; leer = alle)</label>
+      <input id="lq" type="text" name="q" value="{{ auswahl.q }}" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <label for="lk">Kategorie</label>
+      <select id="lk" name="kategorie">
+        <option value="">alle</option>
+        {% for k in kategorien %}
+        <option value="{{ k.id }}"{% if auswahl.kategorie == k.id %} selected{% endif %}>{{ k.label }} ({{ k.parts }})</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+
+      <label for="groesse">Größe eines Etiketts</label>
+      <select id="groesse" name="groesse">
+        {% for g in groessen %}
+        <option value="{{ g.id }}"{% if groesse.id == g.id %} selected{% endif %}>{{ g.title }}</option>
+        {% endfor %}
+        <option value="{{ eigen }}"{% if groesse.id == eigen %} selected{% endif %}>Eigene Größe (Maße unten)</option>
+      </select>
+      <div class="pair">
+        <div>
+          <label for="breite">Breite in mm</label>
+          <input id="breite" type="text" name="breite" inputmode="decimal" autocomplete="off"
+                 value="{{ auswahl.breite if groesse.id == eigen else groesse.width | mm_de }}">
+        </div>
+        <div>
+          <label for="hoehe">Höhe in mm</label>
+          <input id="hoehe" type="text" name="hoehe" inputmode="decimal" autocomplete="off"
+                 value="{{ auswahl.hoehe if groesse.id == eigen else groesse.height | mm_de }}">
+        </div>
+      </div>
+      <p class="hint">Breite und Höhe gelten nur bei „Eigene Größe“.</p>
+
+      <label for="adresse">Adresse im QR-Code</label>
+      <input id="adresse" type="text" name="adresse" value="{{ adresse }}" placeholder="http://lager.fritz.box:8080"
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p class="hint">
+        {% if adresse_quelle == "config" %}Gespeicherte Adresse aus der config.yaml.
+        {% elif adresse_quelle == "vorschlag" %}Vorschlag, noch nicht gespeichert.
+        {% else %}Eingegeben, noch nicht gespeichert.{% endif %}
+        Unter dieser Adresse muss das Handy den Server im WLAN erreichen. Ein Name bleibt
+        gültig, wenn sich die IP ändert; alles nach dem Namen ergänzt das Programm.
+      </p>
+
+      <label class="check">
+        <input type="checkbox" name="ohne_beschreibung" value="1"{% if auswahl.ohne_beschreibung %} checked{% endif %}>
+        Beschreibung weglassen
+      </label>
+      <label class="check">
+        <input type="checkbox" name="ohne_fach" value="1"{% if auswahl.ohne_fach %} checked{% endif %}>
+        Lagerfach weglassen
+      </label>
+
+      <div class="buttons">
+        <button type="submit">Vorschau aktualisieren</button>
+        {% if bogen and bogen.count %}
+        <button type="button" class="quiet" onclick="window.print()">Drucken</button>
+        {% endif %}
+        {% if lokal and not schreibschutz %}
+        <button type="submit" class="quiet" formaction="/etiketten/adresse" formmethod="post">Adresse merken</button>
+        {% endif %}
+      </div>
+    </form>
+
+    {% if hinweise %}
+    <div class="notice" role="note">
+      <ul>{% for h in hinweise %}<li>{{ h }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    {% if bogen %}
+    <p class="summary">
+      {% if bogen.count %}
+      {{ bogen.count }} {{ "Etikett" if bogen.count == 1 else "Etiketten" }} auf
+      {{ bogen.sheets | length }} {{ "Seite" if bogen.sheets | length == 1 else "Seiten" }} ·
+      {{ bogen.layout.per_sheet }} passen auf eine Seite ·
+      QR-Punkt {{ bogen.min_module_mm | mm_de(2) }} mm
+      {% else %}
+      Für diese Auswahl gibt es keine Bauteile.
+      {% endif %}
+    </p>
+    {% if bogen.count %}
+    <p class="hint">
+      Im Druckdialog: Papier A4, Skalierung 100 % (nicht „an Seite anpassen“), Ränder „Keine“ oder
+      „Standard“. Vor einem großen Druck ein Etikett mit dem Handy probelesen.
+    </p>
+    {% endif %}
+    {% endif %}
+  </article>
+
+  {% if bogen and bogen.count %}
+  {% set g = bogen.geometry %}
+  <div class="sheets">
+    {% for sheet in bogen.sheets %}
+    <section class="sheet" aria-label="Seite {{ loop.index }}">
+      {% for e in sheet %}
+      <div class="label{% if g.stacked %} stacked{% endif %}"
+           style="left:{{ e.x | mm }}mm;top:{{ e.y | mm }}mm;width:{{ g.size.width | mm }}mm;height:{{ g.size.height | mm }}mm">
+        <div class="label-qr"
+             style="left:{{ g.qr.x | mm }}mm;top:{{ g.qr.y | mm }}mm;width:{{ g.qr.width | mm }}mm;height:{{ g.qr.height | mm }}mm">{{ e.qr.svg | safe }}</div>
+        <div class="label-text"
+             style="left:{{ g.text.x | mm }}mm;top:{{ g.text.y | mm }}mm;width:{{ g.text.width | mm }}mm;height:{{ g.text.height | mm }}mm">
+          <div class="label-id" style="font-size:{{ e.text.id_size | mm }}mm">{% for piece in e.text.id_parts %}<span>{{ piece }}</span>{% endfor %}</div>
+          {% if e.text.name_lines %}
+          <div class="label-name" style="font-size:{{ e.text.small_size | mm }}mm;-webkit-line-clamp:{{ e.text.name_lines }};max-height:{{ (e.text.name_lines * e.text.small_size * 1.2) | mm }}mm">{{ e.part.name }}</div>
+          {% endif %}
+          {% if e.text.show_location %}
+          <div class="label-loc" style="font-size:{{ e.text.small_size | mm }}mm">Fach {{ e.part.location }}</div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endblock %}

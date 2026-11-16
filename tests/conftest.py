@@ -4,19 +4,48 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from lager import categories, parts
+from lager import categories, labels, parts
 from lager.server.app import create_app
 
 # Absender der Anfragen: der PC, auf dem der Server läuft, und ein anderes Gerät im WLAN.
 LOCAL = ("127.0.0.1", 50000)
 PHONE = ("192.168.1.77", 50000)
 
+# Das Netz der Tests: Der Test-PC heißt "TestPC" und hat die IP 192.168.0.10.
+TEST_IP = "192.168.0.10"
+TEST_NAMES = {
+    "testpc": [TEST_IP],
+    "testpc.fritz.box": [TEST_IP],
+    "lager.fritz.box": [TEST_IP],
+    "anderer.fritz.box": ["192.168.0.99"],
+}
+
+TEST_CONFIG = """# Test-Konfiguration
+lager_root: "lager"
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  # Adresse für die QR-Etiketten
+  public_url: ""
+
+write_token: ""
+"""
+
+
+@pytest.fixture(autouse=True)
+def netz(monkeypatch):
+    """Kein echtes Netz in Tests: fester PC-Name, feste IP und feste Namensauflösung."""
+    monkeypatch.setattr(labels, "local_hostname", lambda: "TestPC")
+    monkeypatch.setattr(labels, "lan_ipv4", lambda: TEST_IP)
+    monkeypatch.setattr(labels, "resolve_ipv4", lambda host: list(TEST_NAMES.get(host.lower(), [])))
+
 
 @pytest.fixture()
 def config_path(tmp_path: Path) -> Path:
     """Eigene config.yaml je Test, damit nie die echte Projekt-Konfiguration geändert wird."""
     path = tmp_path / "config.yaml"
-    path.write_text('# Test-Konfiguration\nlager_root: "lager"\nwrite_token: ""\n', encoding="utf-8")
+    path.write_text(TEST_CONFIG, encoding="utf-8")
     return path
 
 

@@ -13,6 +13,8 @@
   --ok-bg: #e2f4e6;
   --ok-line: #7cc08a;
   --ok-text: #12401d;
+  --danger: #b3261e;
+  --danger-text: #ffffff;
   --radius: 12px;
 }
 @media (prefers-color-scheme: dark) {
@@ -30,6 +32,8 @@
     --ok-bg: #15301c;
     --ok-line: #2f6b3d;
     --ok-text: #c9efd2;
+    --danger: #f2b8b5;
+    --danger-text: #410e0b;
   }
 }
 
@@ -64,6 +68,14 @@ button {
   border: 0; border-radius: var(--radius);
 }
 button.quiet { color: var(--accent); background: transparent; border: 1px solid var(--line); }
+button.danger { color: var(--danger-text); background: var(--danger); }
+button:disabled { opacity: .6; cursor: default; }
+
+/* static/app.js setzt die Klasse "js" am <html>. Damit lassen sich Teile nur mit
+   oder nur ohne JavaScript zeigen. */
+.jsonly { display: none; }
+.js .jsonly { display: revert; }
+.js .nojs { display: none; }
 .add {
   flex: none; display: grid; place-items: center; width: 44px; height: 44px;
   font-size: 1.6rem; font-weight: 600; line-height: 1; text-decoration: none;
@@ -97,6 +109,39 @@ button.quiet { color: var(--accent); background: transparent; border: 1px solid 
 .buttons { display: flex; gap: 16px; align-items: center; margin-top: 14px; }
 .buttons button { margin-top: 0; }
 .quiet-link { display: inline-block; padding: 10px 0; }
+
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pair > div { display: grid; gap: 6px; }
+.lead-small { margin: 6px 0 0; color: var(--muted); }
+
+/* QR-Code auf der Bauteilseite: immer schwarz auf weiß, damit ihn ein Handy vom Bildschirm liest. */
+.qr-box { width: 200px; max-width: 100%; padding: 10px; background: #fff; border-radius: 8px; }
+.qr-box svg { display: block; width: 100%; height: auto; shape-rendering: crispEdges; }
+
+/* QR-Etiketten: Vorschau der A4-Seiten. Gedruckt wird Papier, deshalb immer schwarz auf weiß.
+   Die Regeln für den Druck stehen in templates/labels.html. */
+main:has(.sheets) { max-width: 900px; }
+.sheets { overflow-x: auto; padding: 8px 0 16px; }
+.sheet {
+  position: relative; width: 210mm; height: 297mm; margin: 0 auto 16px; overflow: hidden;
+  background: #fff; color: #000; box-shadow: 0 0 0 1px var(--line);
+  font-family: Arial, Helvetica, sans-serif;
+}
+.label { position: absolute; overflow: hidden; outline: 0.2mm dashed #8a9099; }
+.label-qr { position: absolute; }
+.label-qr svg { display: block; width: 100%; height: 100%; shape-rendering: crispEdges; }
+.label-text {
+  position: absolute; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.label.stacked .label-text { text-align: center; }
+.label-id { font-weight: 700; line-height: 1.2; overflow: hidden; }
+.label-id span { display: block; white-space: nowrap; }  /* eine Zeile je Teil der Bezeichnung */
+.label-name {
+  line-height: 1.2; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical;
+}
+.label-loc { line-height: 1.2; white-space: nowrap; overflow: hidden; }
 
 .settings { margin: 12px 0; }
 .settings summary { cursor: pointer; padding: 10px 0; color: var(--accent); }
@@ -146,6 +191,17 @@ button.quiet { color: var(--accent); background: transparent; border: 1px solid 
 .file.primary { color: var(--accent-text); background: var(--accent); border-color: var(--accent); }
 .file-name { font-weight: 600; overflow-wrap: anywhere; }
 .file-meta { font-size: .9rem; opacity: .8; }
+/* Datei und rechts daneben der Knopf zum Löschen. */
+.file-row { display: flex; gap: 8px; align-items: stretch; }
+.file-row .file { flex: 1; min-width: 0; }
+.file-row form { display: flex; }
+.remove { flex: none; width: 44px; height: auto; min-height: 44px; padding: 0; color: var(--muted); }
+
+/* Fortschritt beim Hochladen. */
+.upload-status { display: grid; gap: 4px; }
+.upload-status[hidden] { display: none; }
+.upload-status progress { width: 100%; height: 12px; accent-color: var(--accent); }
+.upload-text { margin: 0; color: var(--muted); font-size: .9rem; }
 
 dl {
   margin: 0; padding: 4px 14px;

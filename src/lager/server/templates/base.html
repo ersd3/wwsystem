@@ -6,6 +6,7 @@
   <title>{% block title %}Lager{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='style.css') }}">
   <script src="{{ url_for('static', path='app.js') }}" defer></script>
+  {% block head %}{% endblock %}
 </head>
 <body>
   <header class="top">
@@ -55,6 +56,10 @@
         <label for="pfad">Vollständiger Pfad zum Lager-Ordner</label>
         <input id="pfad" type="text" name="pfad" value="{{ lager_root }}" required
                autocomplete="off" autocapitalize="off" spellcheck="false">
+        {# Nur mit JavaScript: Der Server öffnet das Ordner-Auswahlfenster dieses PCs. #}
+        <button type="button" class="quiet jsonly" data-pick-folder="/einstellungen/ordner-waehlen"
+                data-target="pfad" data-status="pfad-status">Ordner auswählen …</button>
+        <p class="hint" id="pfad-status" role="status"></p>
         <label class="check">
           <input type="checkbox" name="anlegen" value="1">
           Neues Lager anlegen, falls der Ordner leer ist oder noch nicht existiert

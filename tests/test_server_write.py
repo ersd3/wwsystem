@@ -137,7 +137,7 @@ def test_neues_bauteil_mit_datenblatt(client, lager_voll):
     response = client.post(
         "/neu",
         data={
-            "bezeichnung": " bc547 ", "kategorie": "mosfets", "name": "NPN-Transistor",
+            "bezeichnung": " BC547 ", "kategorie": "mosfets", "name": "NPN-Transistor",
             "hersteller": "onsemi", "lagerfach": "B-01", "menge": "12",
             "tags": "npn, to-92", "aliase": "BC547B", "notizen": "Standardtyp",
         },
@@ -200,7 +200,7 @@ def test_neues_bauteil_mit_neuer_kategorie(client):
         ({"bezeichnung": "NEU1", "kategorie": "gibtsnicht"}, "Kategorie existiert nicht"),
         ({"bezeichnung": "NEU1", "kategorie": "../fremd"}, "Kategorie existiert nicht"),
         ({"bezeichnung": "   ", "kategorie": "mosfets"}, "Bezeichnung eintragen"),
-        ({"bezeichnung": "???", "kategorie": "mosfets"}, "Ungültige Bauteil-Bezeichnung"),
+        ({"bezeichnung": "???", "kategorie": "mosfets"}, "darf diese Zeichen nicht enthalten"),
         ({"bezeichnung": "NEU1", "kategorie": "mosfets", "menge": "viele"}, "ganze Zahl"),
     ],
 )
@@ -235,7 +235,7 @@ def test_upload_zu_bauteil(client):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/p/IRF540N"
+    assert response.headers["location"].startswith("/p/IRF540N?hochgeladen=irf540n.pdf")
     paths = [f["path"] for f in client.get("/api/v1/parts/IRF540N").json()["files"]]
     assert paths == ["irf540n.pdf", "3d/TO-220.step"]
     page = client.get("/p/IRF540N").text
@@ -291,7 +291,7 @@ def test_api_bauteil_anlegen(client):
         json={"part": "ne555", "category": "mosfets", "name": "Timer", "tags": ["timer"], "quantity": 3},
     )
     assert response.status_code == 201
-    assert response.json()["part"] == "NE555"
+    assert response.json()["part"] == "ne555"  # die Schreibweise bleibt, wie sie kam
     assert response.json()["tags"] == ["timer"]
     assert response.json()["quantity"] == 3
     duplicate = client.post("/api/v1/parts", json={"part": "NE555", "category": "widerstaende"})
@@ -323,7 +323,9 @@ def test_api_dateien_hochladen(client):
 def test_api_kategorie_anlegen(client, lager_voll):
     response = client.post("/api/v1/categories", json={"id": "Dioden", "label": "Dioden"})
     assert response.status_code == 201
-    assert response.json() == {"id": "dioden", "label": "Dioden", "listed": True, "parts": 0}
+    assert response.json() == {
+        "id": "dioden", "label": "Dioden", "listed": True, "parts": 0, "subcategories": [],
+    }
     assert (lager_voll / "dioden").is_dir()
     assert client.post("/api/v1/categories", json={"id": "dioden"}).status_code == 400
 

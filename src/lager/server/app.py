@@ -10,7 +10,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, List, Optional, Sequence, Tuple, Union
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from fastapi import (
     APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile,
@@ -21,14 +21,17 @@ from fastapi.templating import Jinja2Templates
 
 from .. import __version__, db, indexer
 from .. import categories as catmod
+from .. import dialogs as dialogmod
 from .. import files as filesmod
+from .. import labels as labelmod
 from .. import parts as partmod
 from .. import root as rootmod
 from .. import search as searchmod
-from ..config import CONFIG_PATH, load_config, set_lager_root
+from .. import trash as trashmod
+from ..config import CONFIG_PATH, load_config, set_lager_root, set_public_url
 from .schemas import (
-    Category, Health, IndexStatus, NewCategory, NewPart, Part, PartChanges, RebuildResult,
-    SearchResult, UploadResult,
+    Category, FileDeleteResult, Health, IndexStatus, NewCategory, NewPart, Part, PartChanges,
+    PartDeleteResult, RebuildResult, SearchResult, UploadResult,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -65,7 +68,14 @@ def _filesize(size: int) -> str:
 
 
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+def _mm(value: float) -> str:
+    """Maß für CSS: zwei Nachkommastellen, Punkt als Dezimalzeichen, ohne Endnullen."""
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
 templates.env.filters["filesize"] = _filesize
+templates.env.filters["mm"] = _mm
+templates.env.filters["mm_de"] = labelmod.format_mm
 templates.env.globals["kind_label"] = lambda kind: KIND_LABELS.get(kind, kind)
 
 
@@ -157,9 +167,48 @@ def _split_list(text: str) -> List[str]:
     return [item.strip() for item in text.split(",") if item.strip()]
 
 
-def _create_part(request: Request, part: str, category: str, data: dict, new_category: str = "") -> Path:
+def _chosen_subcategory(category: str, selected: str, typed: str, lenient: bool = False) -> str:
+    """Unterkategorie aus den Formularfeldern; eine neu eingetippte geht vor der Auswahl.
+
+    Die Auswahl hat die Form "<kategorie>/<unterkategorie>". Gehört sie zu einer anderen
+    Kategorie (ohne JavaScript bleibt sie beim Wechsel der Kategorie stehen), ist das ein
+    Fehler. Mit `lenient` wird sie stattdessen übergangen.
+    """
+    if typed.strip():
+        return typed
+    selected = selected.strip()
+    if not selected:
+        return ""
+    prefix = f"{category}/"
+    if selected.startswith(prefix):
+        return selected[len(prefix):]
+    if lenient:
+        return ""
+    raise ValueError(
+        "Die gewählte Unterkategorie gehört zu einer anderen Kategorie. Bitte neu wählen."
+    )
+
+
+def _subcategory_options(request: Request, kategorien: List[dict]) -> List[dict]:
+    """Alle Unterkategorien des Lagers für die Auswahlfelder (Ordner unter den Kategorien)."""
+    root = request.app.state.root
+    return [
+        {"kategorie": k["id"], "label": k["label"], "pfad": sub}
+        for k in kategorien
+        for sub in catmod.subcategories(root, k["id"])
+    ]
+
+
+def _create_part(
+    request: Request, part: str, category: str, data: dict, new_category: str = "",
+    subcategory: str = "",
+) -> Path:
     """Legt ein Bauteil an (auf Wunsch samt neuer Kategorie). Fehler als ValueError."""
     root = request.app.state.root
+    # Erst prüfen, dann anlegen: Bei einer ungültigen Bezeichnung soll keine neue,
+    # leere Kategorie zurückbleiben.
+    partmod.validate_part_id(partmod.normalize_part_id(part))
+    catmod.normalize_subcategory(subcategory)
     if new_category.strip():
         category = catmod.normalize_id(new_category)
         if not category:
@@ -171,7 +220,7 @@ def _create_part(request: Request, part: str, category: str, data: dict, new_cat
         raise ValueError("Bitte eine Kategorie wählen oder eine neue eintragen.")
     if category not in known:
         raise ValueError(f"Kategorie existiert nicht: {category}")
-    return partmod.create_part(root, category, part, data)
+    return partmod.create_part(root, category, part, data, subcategory)
 
 
 def _save_uploads(
@@ -260,9 +309,11 @@ def api_parts(
     summary="Neues Bauteil anlegen",
 )
 def api_create_part(request: Request, body: NewPart) -> dict:
-    data = body.model_dump(exclude={"part", "category"})
+    data = body.model_dump(exclude={"part", "category", "subcategory"})
     try:
-        part_dir = _create_part(request, body.part, body.category, data)
+        part_dir = _create_part(
+            request, body.part, body.category, data, subcategory=body.subcategory
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     _rebuild(request)
@@ -283,20 +334,51 @@ def api_part(request: Request, part: str) -> dict:
     "/parts/{part}",
     response_model=Part,
     dependencies=[Depends(require_write)],
-    summary="Angaben eines Bauteils ändern (nur die mitgeschickten Felder)",
+    summary="Bauteil ändern, umbenennen oder verschieben (nur die mitgeschickten Felder)",
 )
 def api_update_part(request: Request, part: str, body: PartChanges) -> dict:
-    if _part_dir(request, part) is None:
+    """`part` benennt um, `category` und `subcategory` verschieben, der Rest ändert Angaben.
+
+    Nach einem Umbenennen steht die alte Bezeichnung in den Aliasen.
+    """
+    part_dir = _part_dir(request, part)
+    if part_dir is None:
         raise HTTPException(404, f"Teil nicht gefunden: {part}")
+    root = request.app.state.root
+    changes = body.model_dump(exclude_unset=True)
+    move = {key: changes.pop(key) for key in ("part", "category", "subcategory") if key in changes}
     try:
-        part_dir = partmod.update_part(
-            request.app.state.root, part, body.model_dump(exclude_unset=True)
-        )
+        if changes:
+            part_dir = partmod.update_part(root, part_dir.name, changes)
+        if move:
+            part_dir = partmod.move_part(
+                root, part_dir.name, move.get("part"), move.get("category"), move.get("subcategory")
+            )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    finally:
+        _rebuild(request)
+    with open_index(request) as conn:
+        return searchmod.get_part(conn, part_dir.name)
+
+
+@api.delete(
+    "/parts/{part}",
+    response_model=PartDeleteResult,
+    dependencies=[Depends(require_write)],
+    summary="Bauteil löschen (sein Ordner wandert in den Papierkorb des Lagers)",
+)
+def api_delete_part(request: Request, part: str) -> dict:
+    part_dir = _part_dir(request, part)
+    if part_dir is None:
+        raise HTTPException(404, f"Teil nicht gefunden: {part}")
+    root = request.app.state.root
+    try:
+        trashed = partmod.delete_part(root, part_dir.name)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _rebuild(request)
-    with open_index(request) as conn:
-        return searchmod.get_part(conn, part_dir.name)
+    return {"geloescht": part_dir.name, "papierkorb": trashed.relative_to(root).as_posix()}
 
 
 @api.post(
@@ -318,10 +400,37 @@ def api_add_files(request: Request, part: str, files: List[UploadFile] = File(..
         return {"hinzugefuegt": added, "fehler": errors, "teil": searchmod.get_part(conn, part)}
 
 
+@api.delete(
+    "/parts/{part}/files/{rel_path:path}",
+    response_model=FileDeleteResult,
+    dependencies=[Depends(require_write)],
+    summary="Datei eines Bauteils löschen (sie wandert in den Papierkorb des Lagers)",
+)
+def api_delete_file(request: Request, part: str, rel_path: str) -> dict:
+    """`rel_path` ist der Pfad im Bauteil-Ordner, z. B. `kicad/TO-220.kicad_mod`."""
+    part_dir = _part_dir(request, part)
+    if part_dir is None:
+        raise HTTPException(404, f"Teil nicht gefunden: {part}")
+    root = request.app.state.root
+    try:
+        trashed = filesmod.remove_file(root, part_dir, rel_path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _rebuild(request)
+    with open_index(request) as conn:
+        return {
+            "geloescht": rel_path,
+            "papierkorb": trashed.relative_to(root).as_posix(),
+            "teil": searchmod.get_part(conn, part_dir.name),
+        }
+
+
 @api.get("/categories", response_model=List[Category], summary="Kategorien mit Teil-Anzahl")
 def api_categories(request: Request) -> list:
     with open_index(request) as conn:
-        return searchmod.list_categories(conn)
+        found = searchmod.list_categories(conn)
+    root = request.app.state.root
+    return [{**c, "subcategories": catmod.subcategories(root, c["id"])} for c in found]
 
 
 @api.post(
@@ -398,6 +507,7 @@ def _page_context(request: Request, conn: sqlite3.Connection) -> dict:
         "token_aktiv": bool(_write_token(request)),
         "lokal": is_local(request),
         "lager_root": str(request.app.state.root),
+        "papierkorb": trashmod.TRASH_DIR,
         "version": __version__,
         "q": "",
         "kategorie": "",
@@ -414,11 +524,18 @@ def _search_page(
     meldung: str = "",
     status: int = 200,
     hinweis: str = "",
+    teil: str = "",
 ):
     with open_index(request) as conn:
         context = _page_context(request, conn)
         hits = searchmod.search(conn, q, kategorie or None, 100)
+        gone = bool(teil) and searchmod.get_part(conn, teil) is None
     erfolg, warnungen = _rebuild_notice(request, hinweis)
+    if hinweis == "geloescht" and gone:
+        erfolg = (
+            f"{teil} ist gelöscht. Der Ordner liegt im Papierkorb des Lagers "
+            f"(Ordner {trashmod.TRASH_DIR})."
+        )
     context.update(
         {
             "q": q, "kategorie": kategorie, "treffer": hits, "meldung": meldung,
@@ -428,11 +545,42 @@ def _search_page(
     return templates.TemplateResponse(request, "index.html", context, status_code=status)
 
 
-def _part_page(request: Request, part: str, meldung: str = "", status: Optional[int] = None):
+def _part_notice(found: dict, hochgeladen: Sequence[str], geloescht: str, frueher: str) -> str:
+    """Erfolgsmeldung der Bauteilseite. Gemeldet wird nur, was am Bauteil auch stimmt."""
+    notes: List[str] = []
+    paths = {f["path"] for f in found["files"]}
+    uploaded = [name for name in hochgeladen if name in paths]
+    if uploaded:
+        notes.append(f"{_count(len(uploaded), 'Datei', 'Dateien')} hochgeladen: {', '.join(uploaded)}.")
+    if geloescht and geloescht not in paths:
+        notes.append(
+            f"{geloescht} ist gelöscht. Die Datei liegt im Papierkorb des Lagers "
+            f"(Ordner {trashmod.TRASH_DIR})."
+        )
+    if frueher and frueher.lower() in (alias.lower() for alias in found["aliases"]):
+        notes.append(f"„{frueher}“ heißt jetzt „{found['part']}“.")
+    return " ".join(notes)
+
+
+def _part_page(
+    request: Request,
+    part: str,
+    meldung: str = "",
+    status: Optional[int] = None,
+    hochgeladen: Sequence[str] = (),
+    geloescht: str = "",
+    frueher: str = "",
+):
     with open_index(request) as conn:
         context = _page_context(request, conn)
         found = searchmod.get_part(conn, part)
-    context.update({"teil": found, "gesucht": part, "meldung": meldung})
+    qr = None
+    if found:
+        base, _source = label_base_url(request)
+        if base:
+            qr = labelmod.make_qr(labelmod.part_url(base, found["part"]))
+        context["erfolg"] = _part_notice(found, hochgeladen, geloescht, frueher)
+    context.update({"teil": found, "gesucht": part, "meldung": meldung, "qr": qr})
     if status is None:
         status = 200 if found else 404
     return templates.TemplateResponse(request, "part.html", context, status_code=status)
@@ -441,13 +589,21 @@ def _part_page(request: Request, part: str, meldung: str = "", status: Optional[
 def _new_page(request: Request, form: dict, meldung: str = "", status: int = 200):
     with open_index(request) as conn:
         context = _page_context(request, conn)
-    context.update({"form": form, "meldung": meldung})
+    context.update(
+        {
+            "form": form,
+            "meldung": meldung,
+            "unterkategorien": _subcategory_options(request, context["kategorien"]),
+        }
+    )
     return templates.TemplateResponse(request, "new.html", context, status_code=status)
 
 
 @pages.get("/", response_class=HTMLResponse)
-def page_search(request: Request, q: str = "", kategorie: str = "", hinweis: str = ""):
-    return _search_page(request, q, kategorie, hinweis=hinweis)
+def page_search(
+    request: Request, q: str = "", kategorie: str = "", hinweis: str = "", teil: str = ""
+):
+    return _search_page(request, q, kategorie, hinweis=hinweis, teil=teil)
 
 
 @pages.get("/suche", response_class=HTMLResponse)
@@ -464,8 +620,25 @@ def page_search_fragment(request: Request, q: str = "", kategorie: str = ""):
 
 
 @pages.get("/p/{part}", response_class=HTMLResponse)
-def page_part(request: Request, part: str):
-    return _part_page(request, part)
+def page_part(
+    request: Request,
+    part: str,
+    hochgeladen: List[str] = Query(default=[]),
+    geloescht: str = "",
+    frueher: str = "",
+):
+    with open_index(request) as conn:
+        renamed = None
+        if searchmod.get_part(conn, part) is None:
+            renamed = searchmod.find_by_alias(conn, part)
+    if renamed is not None:
+        # Alte Bezeichnung eines umbenannten Bauteils, z. B. von einem gedruckten QR-Etikett.
+        return RedirectResponse(
+            f"/p/{quote(renamed['part'])}?" + urlencode({"frueher": part}), status_code=307
+        )
+    return _part_page(
+        request, part, hochgeladen=hochgeladen, geloescht=geloescht, frueher=frueher
+    )
 
 
 def _edit_page(request: Request, part: str, form: Optional[dict] = None, meldung: str = "", status: int = 200):
@@ -475,13 +648,25 @@ def _edit_page(request: Request, part: str, form: Optional[dict] = None, meldung
     if found is None:
         return _part_page(request, part)
     if form is None:
+        sub = found["subcategory"]
         form = {
+            "bezeichnung": found["part"], "kategorie": found["category"],
+            "unterkategorie": f"{found['category']}/{sub}" if sub else "",
+            "neue_unterkategorie": "",
             "name": found["name"], "hersteller": found["manufacturer"],
             "lagerfach": found["location"], "menge": str(found["quantity"]),
             "einheit": found["unit"], "tags": ", ".join(found["tags"]),
             "aliase": ", ".join(found["aliases"]), "notizen": found["notes"],
         }
-    context.update({"teil": found, "form": form, "meldung": meldung})
+    options = _subcategory_options(request, context["kategorien"])
+    # Die eigene Unterkategorie muss zur Auswahl stehen, auch wenn sie von Hand tiefer
+    # verschachtelt wurde als die Liste reicht. Sonst würde Speichern das Bauteil verschieben.
+    here = {"kategorie": found["category"], "label": found["category_label"], "pfad": found["subcategory"]}
+    if here["pfad"] and not any(
+        (o["kategorie"], o["pfad"]) == (here["kategorie"], here["pfad"]) for o in options
+    ):
+        options.append(here)
+    context.update({"teil": found, "form": form, "meldung": meldung, "unterkategorien": options})
     return templates.TemplateResponse(request, "edit.html", context, status_code=status)
 
 
@@ -494,6 +679,10 @@ def page_edit(request: Request, part: str):
 def page_edit_submit(
     request: Request,
     part: str,
+    bezeichnung: str = Form(""),
+    kategorie: str = Form(""),
+    unterkategorie: str = Form(""),
+    neue_unterkategorie: str = Form(""),
     name: str = Form(""),
     hersteller: str = Form(""),
     lagerfach: str = Form(""),
@@ -503,16 +692,31 @@ def page_edit_submit(
     aliase: str = Form(""),
     notizen: str = Form(""),
 ):
+    """Speichert die Angaben; neue Bezeichnung, Kategorie oder Unterkategorie verschieben den Ordner."""
     form = {
+        "bezeichnung": bezeichnung, "kategorie": kategorie, "unterkategorie": unterkategorie,
+        "neue_unterkategorie": neue_unterkategorie,
         "name": name, "hersteller": hersteller, "lagerfach": lagerfach, "menge": menge,
         "einheit": einheit, "tags": tags, "aliase": aliase, "notizen": notizen,
     }
-    if _part_dir(request, part) is None:
+    part_dir = _part_dir(request, part)
+    if part_dir is None:
         return _part_page(request, part)
+    root = request.app.state.root
+    old_category, old_sub = partmod.location_of(root, part_dir)
+    # Leere Felder für Bezeichnung und Kategorie heißen: bleibt, wie es ist.
+    category = kategorie.strip() or None
     try:
+        subcategory = None
+        if category is not None or neue_unterkategorie.strip():
+            subcategory = _chosen_subcategory(
+                category or old_category, unterkategorie, neue_unterkategorie
+            )
+        if (category or old_category, subcategory) == (old_category, old_sub):
+            category = subcategory = None  # derselbe Ort wie bisher: nichts zu verschieben
         part_dir = partmod.update_part(
-            request.app.state.root,
-            part,
+            root,
+            part_dir.name,
             {
                 "name": name, "manufacturer": hersteller, "location": lagerfach,
                 "quantity": menge.strip() or "0", "unit": einheit,
@@ -521,8 +725,41 @@ def page_edit_submit(
         )
     except ValueError as e:
         return _edit_page(request, part, form, str(e), 400)
+    try:
+        moved = partmod.move_part(
+            root, part_dir.name, bezeichnung.strip() or None, category, subcategory
+        )
+    except ValueError as e:
+        _rebuild(request)
+        return _edit_page(
+            request, part, form, f"Die übrigen Angaben sind gespeichert. Aber: {e}", 400
+        )
     _rebuild(request)
-    return RedirectResponse(f"/p/{quote(part_dir.name)}", status_code=303)
+    target = f"/p/{quote(moved.name)}"
+    if moved.name.lower() != part_dir.name.lower():
+        target += "?" + urlencode({"frueher": part_dir.name})
+    return RedirectResponse(target, status_code=303)
+
+
+@pages.post("/p/{part}/loeschen", dependencies=[Depends(require_write)])
+def page_delete_part(request: Request, part: str, sicher: str = Form("")):
+    """Löscht ein Bauteil: Sein Ordner wandert in den Papierkorb des Lagers.
+
+    Das Häkchen „Ja, löschen“ im Formular schützt vor einem versehentlichen Tippen.
+    """
+    part_dir = _part_dir(request, part)
+    if part_dir is None:
+        return _part_page(request, part)
+    if not sicher:
+        return _edit_page(request, part, None, "Zum Löschen bitte das Häkchen setzen.", 400)
+    try:
+        partmod.delete_part(request.app.state.root, part_dir.name)
+    except ValueError as e:
+        return _edit_page(request, part, None, str(e), 400)
+    _rebuild(request)
+    return RedirectResponse(
+        "/?" + urlencode({"hinweis": "geloescht", "teil": part_dir.name}), status_code=303
+    )
 
 
 @pages.get("/anmelden", response_class=HTMLResponse)
@@ -567,10 +804,31 @@ def page_add_files(request: Request, part: str, dateien: FormFiles = File(defaul
     if added:
         _rebuild(request)
     if errors:
-        return _part_page(request, part, "Nicht gespeichert: " + "; ".join(errors), 400)
+        return _part_page(
+            request, part, "Nicht gespeichert: " + "; ".join(errors), 400, hochgeladen=added
+        )
     if not added:
         return _part_page(request, part, "Es wurde keine Datei ausgewählt.", 400)
-    return RedirectResponse(f"/p/{quote(part_dir.name)}", status_code=303)
+    return RedirectResponse(
+        f"/p/{quote(part_dir.name)}?" + urlencode([("hochgeladen", name) for name in added]),
+        status_code=303,
+    )
+
+
+@pages.post("/p/{part}/dateien/loeschen", dependencies=[Depends(require_write)])
+def page_delete_file(request: Request, part: str, datei: str = Form("")):
+    """Löscht eine Datei eines Bauteils: Sie wandert in den Papierkorb des Lagers."""
+    part_dir = _part_dir(request, part)
+    if part_dir is None:
+        return _part_page(request, part)
+    try:
+        filesmod.remove_file(request.app.state.root, part_dir, datei)
+    except ValueError as e:
+        return _part_page(request, part, str(e), 400)
+    _rebuild(request)
+    return RedirectResponse(
+        f"/p/{quote(part_dir.name)}?" + urlencode({"geloescht": datei}), status_code=303
+    )
 
 
 @pages.get("/neu", response_class=HTMLResponse)
@@ -584,6 +842,8 @@ def page_new_submit(
     bezeichnung: str = Form(""),
     kategorie: str = Form(""),
     neue_kategorie: str = Form(""),
+    unterkategorie: str = Form(""),
+    neue_unterkategorie: str = Form(""),
     name: str = Form(""),
     hersteller: str = Form(""),
     lagerfach: str = Form(""),
@@ -595,6 +855,7 @@ def page_new_submit(
 ):
     form = {
         "bezeichnung": bezeichnung, "kategorie": kategorie, "neue_kategorie": neue_kategorie,
+        "unterkategorie": unterkategorie, "neue_unterkategorie": neue_unterkategorie,
         "name": name, "hersteller": hersteller, "lagerfach": lagerfach, "menge": menge,
         "tags": tags, "aliase": aliase, "notizen": notizen,
     }
@@ -605,6 +866,12 @@ def page_new_submit(
             raise ValueError("Die Menge muss eine ganze Zahl sein.")
         if not bezeichnung.strip():
             raise ValueError("Bitte eine Bezeichnung eintragen.")
+        # Bei einer neu eingetippten Kategorie kann die Auswahl darunter nicht passen.
+        new_cat = bool(neue_kategorie.strip())
+        effective = catmod.normalize_id(neue_kategorie) if new_cat else kategorie
+        subcategory = _chosen_subcategory(
+            effective, unterkategorie, neue_unterkategorie, lenient=new_cat
+        )
         part_dir = _create_part(
             request,
             bezeichnung,
@@ -616,6 +883,7 @@ def page_new_submit(
                 "notes": notizen.strip(),
             },
             neue_kategorie,
+            subcategory,
         )
     except ValueError as e:
         return _new_page(request, form, str(e), 400)
@@ -651,15 +919,223 @@ def page_set_root(request: Request, pfad: str = Form(""), anlegen: str = Form(""
     return RedirectResponse("/?hinweis=ordner", status_code=303)
 
 
+@pages.post("/einstellungen/ordner-waehlen", dependencies=[Depends(require_write)])
+def page_pick_folder(request: Request) -> dict:
+    """Öffnet am Server-PC das Ordner-Auswahlfenster und liefert den gewählten Pfad.
+
+    Aufgerufen von static/app.js; die Antwort füllt nur das Eingabefeld. Umgestellt
+    wird der Lager-Ordner erst mit „Übernehmen“. Ein leerer Pfad heißt: abgebrochen.
+    """
+    if not is_local(request):
+        raise HTTPException(
+            403, "Das Auswahlfenster gibt es nur an dem PC, auf dem der Server läuft."
+        )
+    try:
+        chosen = dialogmod.pick_folder(request.app.state.root)
+    except dialogmod.DialogUnavailable as e:
+        raise HTTPException(503, str(e))
+    return {"pfad": str(chosen) if chosen else ""}
+
+
+# --------------------------------------------------------------- QR-Etiketten
+
+
+def _request_port(request: Request) -> int:
+    return request.url.port or (443 if request.url.scheme == "https" else 80)
+
+
+def _suggested_base_url(request: Request) -> str:
+    """Vorschlag für die Adresse in den QR-Codes; ermittelt wird er einmal je Serverstart."""
+    cached = getattr(request.app.state, "label_suggestion", None)
+    if cached is None:
+        cached = labelmod.suggest_base_url(_request_port(request))
+        request.app.state.label_suggestion = cached
+    return cached
+
+
+def label_base_url(request: Request, typed: str = "") -> Tuple[str, str]:
+    """Adresse für die QR-Codes und ihre Herkunft: "eingabe", "config" oder "vorschlag".
+
+    Eine ungültige Eingabe löst einen ValueError aus. Ohne Netz kann die Adresse leer sein.
+    """
+    if typed.strip():
+        return labelmod.normalize_base_url(typed), "eingabe"
+    server = request.app.state.cfg.get("server") or {}
+    saved = str(server.get("public_url") or "").strip()
+    if saved:
+        try:
+            return labelmod.normalize_base_url(saved), "config"
+        except ValueError:
+            pass  # unbrauchbarer Eintrag in der config.yaml: wie nicht gesetzt behandeln
+    return _suggested_base_url(request), "vorschlag"
+
+
+def _labels_page(
+    request: Request,
+    teil: Sequence[str] = (),
+    q: str = "",
+    kategorie: str = "",
+    groesse: str = "",
+    breite: str = "",
+    hoehe: str = "",
+    adresse: str = "",
+    ohne_beschreibung: str = "",
+    ohne_fach: str = "",
+    meldung: str = "",
+    erfolg: str = "",
+    status: int = 200,
+):
+    problems = [meldung] if meldung else []
+    try:
+        size = labelmod.resolve_size(groesse, breite, hoehe)
+    except ValueError as e:
+        problems.append(str(e))
+        size = labelmod.resolve_size()
+    try:
+        base, source = label_base_url(request, adresse)
+    except ValueError as e:
+        problems.append(str(e))
+        base, source = label_base_url(request)
+
+    wanted = list(dict.fromkeys(name.strip() for name in teil if name.strip()))
+    with open_index(request) as conn:
+        context = _page_context(request, conn)
+        if wanted:
+            found = {name: searchmod.get_part(conn, name) for name in wanted}
+            missing = [name for name, part in found.items() if part is None]
+            if missing:
+                problems.append("Nicht gefunden: " + ", ".join(missing))
+            by_id = {part["part"]: part for part in found.values() if part is not None}
+            parts = list(by_id.values())
+        else:
+            parts = searchmod.search(conn, q, kategorie or None, searchmod.MAX_LIMIT)
+
+    sheets = None
+    hints: List[str] = []
+    if base:
+        sheets = labelmod.prepare(parts, base, size, not ohne_beschreibung, not ohne_fach)
+        hints = labelmod.check_base_url(base)
+        if 0 < sheets.min_module_mm < labelmod.MIN_MODULE_MM:
+            hints.append(
+                f"Die Punkte des QR-Codes werden nur {labelmod.format_mm(sheets.min_module_mm, 2)} mm "
+                f"groß. Unter {labelmod.format_mm(labelmod.MIN_MODULE_MM)} mm muss das Handy sehr nah "
+                "heran; besser eine größere Etikettengröße wählen."
+            )
+        if sheets.clipped:
+            shown = ", ".join(sheets.clipped[:5]) + (" …" if len(sheets.clipped) > 5 else "")
+            hints.append(
+                f"Zu lang für diese Etikettengröße, die Bezeichnung wird abgeschnitten: {shown}. "
+                "Eine größere Größe wählen."
+            )
+    else:
+        problems.append("Bitte eine Adresse eintragen, unter der das Handy den Server erreicht.")
+    if getattr(request.app.state, "bind_host", None) in LOCAL_HOSTS:
+        hints.append(
+            "Der Server ist gerade nur an diesem PC erreichbar. Damit das Handy die Codes "
+            "öffnen kann, mit „lager serve --host 0.0.0.0“ starten."
+        )
+
+    context.update(
+        {
+            "meldung": " ".join(problems),
+            "erfolg": erfolg,
+            "bogen": sheets,
+            "hinweise": hints,
+            "groessen": labelmod.SIZES,
+            "eigen": labelmod.CUSTOM_SIZE,
+            "groesse": size,
+            "adresse": base,
+            "adresse_quelle": source,
+            "auswahl": {
+                "teile": [part["part"] for part in parts] if wanted else [],
+                "q": q,
+                "kategorie": kategorie,
+                "breite": breite,
+                "hoehe": hoehe,
+                "ohne_beschreibung": bool(ohne_beschreibung),
+                "ohne_fach": bool(ohne_fach),
+            },
+        }
+    )
+    return templates.TemplateResponse(request, "labels.html", context, status_code=status)
+
+
+@pages.get("/etiketten", response_class=HTMLResponse)
+def page_labels(
+    request: Request,
+    teil: List[str] = Query(default=[]),
+    q: str = "",
+    kategorie: str = "",
+    groesse: str = "",
+    breite: str = "",
+    hoehe: str = "",
+    adresse: str = "",
+    ohne_beschreibung: str = "",
+    ohne_fach: str = "",
+    hinweis: str = "",
+):
+    erfolg = ""
+    if hinweis == "adresse":
+        erfolg = "Die Adresse ist gespeichert und gilt ab jetzt für alle QR-Codes."
+    return _labels_page(
+        request, teil, q, kategorie, groesse, breite, hoehe, adresse,
+        ohne_beschreibung, ohne_fach, erfolg=erfolg,
+    )
+
+
+@pages.post("/etiketten/adresse", dependencies=[Depends(require_write)])
+def page_labels_save_address(
+    request: Request,
+    teil: List[str] = Form(default=[]),
+    q: str = Form(""),
+    kategorie: str = Form(""),
+    groesse: str = Form(""),
+    breite: str = Form(""),
+    hoehe: str = Form(""),
+    adresse: str = Form(""),
+    ohne_beschreibung: str = Form(""),
+    ohne_fach: str = Form(""),
+):
+    """Merkt die Adresse für die QR-Codes in der config.yaml (server.public_url)."""
+    if not is_local(request):
+        raise HTTPException(
+            403, "Die Adresse lässt sich nur an dem PC speichern, auf dem der Server läuft."
+        )
+    try:
+        url = labelmod.normalize_base_url(adresse)
+    except ValueError as e:
+        return _labels_page(
+            request, teil, q, kategorie, groesse, breite, hoehe, "",
+            ohne_beschreibung, ohne_fach, meldung=str(e), status=400,
+        )
+    set_public_url(url, request.app.state.config_path)
+    request.app.state.cfg.setdefault("server", {})["public_url"] = url
+    fields = [("teil", name) for name in teil] + [
+        (key, value)
+        for key, value in (
+            ("q", q), ("kategorie", kategorie), ("groesse", groesse), ("breite", breite),
+            ("hoehe", hoehe), ("ohne_beschreibung", ohne_beschreibung), ("ohne_fach", ohne_fach),
+        )
+        if value
+    ]
+    return RedirectResponse(
+        "/etiketten?" + urlencode(fields + [("hinweis", "adresse")]), status_code=303
+    )
+
+
 # ---------------------------------------------------------------------- App
 
 
 def create_app(
-    root: Path, cfg: Optional[dict] = None, config_path: Path = CONFIG_PATH
+    root: Path,
+    cfg: Optional[dict] = None,
+    config_path: Path = CONFIG_PATH,
+    bind_host: Optional[str] = None,
 ) -> FastAPI:
     """Baut die Anwendung für einen Lager-Root. Der Index wird beim Start frisch eingelesen.
 
     `config_path` ist die config.yaml, in die ein geänderter Lager-Ordner geschrieben wird.
+    `bind_host` ist die Adresse, an der der Server lauscht (nur für Hinweise auf der Seite).
     """
     app = FastAPI(
         title="Lager",
@@ -669,6 +1145,8 @@ def create_app(
     app.state.root = Path(root)
     app.state.cfg = cfg if cfg is not None else load_config(config_path)
     app.state.config_path = Path(config_path)
+    app.state.bind_host = bind_host
+    app.state.label_suggestion = None  # wird beim ersten Bedarf ermittelt
 
     @app.exception_handler(db.IndexDbError)
     def index_error(request: Request, error: db.IndexDbError) -> JSONResponse:

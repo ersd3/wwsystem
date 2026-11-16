@@ -79,7 +79,9 @@ def test_category_remove_nicht_leer(lager):
 
 
 def test_part_id_normalisierung():
-    assert parts.normalize_part_id(" iRLz44n ") == "IRLZ44N"
+    # Die Schreibweise bleibt; nur überflüssige Leerzeichen verschwinden.
+    assert parts.normalize_part_id(" iRLz44n ") == "iRLz44n"
+    assert parts.normalize_part_id("  Arduino   Mega 2560 ") == "Arduino Mega 2560"
     assert parts.normalize_part_id("ATMEGA328P-PU") == "ATMEGA328P-PU"
 
 
@@ -88,7 +90,7 @@ def test_part_new_find(lager):
     pdir = parts.create_part(
         lager, "mosfets", " Irlz44n ", {"quantity": 5, "tags": ["a"]}
     )
-    assert pdir.name == "IRLZ44N"
+    assert pdir.name == "Irlz44n"
     found = parts.find_part(lager, "irlz44n")
     assert found is not None
     _, data = found

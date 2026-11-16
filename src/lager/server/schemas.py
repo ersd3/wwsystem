@@ -40,6 +40,7 @@ class Part(BaseModel):
 class NewPart(BaseModel):
     part: str
     category: str
+    subcategory: str = ""  # Ordner in der Kategorie, z. B. "Shields"; wird bei Bedarf angelegt
     name: str = ""
     manufacturer: str = ""
     quantity: int = 0
@@ -51,8 +52,14 @@ class NewPart(BaseModel):
 
 
 class PartChanges(BaseModel):
-    """Nur die mitgeschickten Felder werden geändert."""
+    """Nur die mitgeschickten Felder werden geändert.
 
+    `part` benennt das Bauteil um, `category` und `subcategory` verschieben es.
+    """
+
+    part: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
     name: Optional[str] = None
     manufacturer: Optional[str] = None
     quantity: Optional[int] = None
@@ -74,6 +81,17 @@ class UploadResult(BaseModel):
     teil: Part
 
 
+class PartDeleteResult(BaseModel):
+    geloescht: str  # Bezeichnung des Bauteils
+    papierkorb: str  # neuer Ort, relativ zum Lager-Root
+
+
+class FileDeleteResult(BaseModel):
+    geloescht: str  # Pfad der Datei im Bauteil-Ordner
+    papierkorb: str  # neuer Ort, relativ zum Lager-Root
+    teil: Part
+
+
 class SearchResult(BaseModel):
     suche: str
     kategorie: str
@@ -86,6 +104,7 @@ class Category(BaseModel):
     label: str
     listed: bool
     parts: int
+    subcategories: List[str] = []  # Ordner in der Kategorie, die kein Bauteil sind
 
 
 class IndexWarning(BaseModel):

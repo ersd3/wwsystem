@@ -2,37 +2,34 @@
 
 Wird von der CLI (`lager part attach`) und vom Server (Hochladen) genutzt.
 Vorhandene Dateien werden nie überschrieben: Gibt es den Namen schon, bekommt
-die neue Datei eine Nummer angehängt (datasheet-2.pdf).
+die neue Datei eine Nummer angehängt (datasheet-2.pdf). Gelöschte Dateien wandern
+in den Papierkorb des Lagers (trash.py).
 """
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
-from . import indexer
+from . import indexer, trash
+from .names import FORBIDDEN_CHARS, RESERVED
 
 # Unterordner je Dateiart (Ordner-Vertrag, KONZEPT.md §3). Alle anderen Arten,
 # auch Datenblätter, liegen direkt im Bauteil-Ordner.
 KIND_FOLDERS = {"cad3d": "3d", "kicad": "kicad", "image": "images"}
 DEFAULT_MAX_BYTES = 200 * 1024 * 1024
 _CHUNK = 1024 * 1024
-_FORBIDDEN_CHARS = set('<>:"/\\|?*')
-# Namen, die Windows nicht als Dateiname zulässt.
-_RESERVED = {"CON", "PRN", "AUX", "NUL"} | {f"COM{i}" for i in range(1, 10)} | {
-    f"LPT{i}" for i in range(1, 10)
-}
 
 
 def safe_filename(raw: str) -> str:
     """Macht aus einem angelieferten Namen einen sicheren Dateinamen ohne Pfad."""
     name = (raw or "").replace("\\", "/").split("/")[-1]
-    name = "".join(ch for ch in name if ch not in _FORBIDDEN_CHARS and ord(ch) >= 32)
+    name = "".join(ch for ch in name if ch not in FORBIDDEN_CHARS and ord(ch) >= 32)
     name = name.strip().lstrip(".").rstrip(". ")
     if not name:
         raise ValueError("Dateiname fehlt oder ist ungültig.")
     if name.lower() == "part.yaml":
         raise ValueError("part.yaml kann nicht als Datei hinzugefügt werden.")
-    if Path(name).stem.upper() in _RESERVED:
+    if Path(name).stem.upper() in RESERVED:
         name = f"datei-{name}"
     return name
 
@@ -99,3 +96,36 @@ def add_file_from_path(
     if move:
         source.unlink()
     return target
+
+
+def remove_file(root: Path, part_dir: Path, rel_path: str) -> Path:
+    """Verschiebt eine Datei eines Bauteils in den Papierkorb des Lagers.
+
+    `rel_path` ist der Pfad relativ zum Bauteil-Ordner, z. B. "kicad/TO-220.kicad_mod".
+    Gibt den Ort im Papierkorb zurück. Ein dadurch leerer Unterordner wird entfernt.
+    """
+    rel = PurePosixPath(str(rel_path or "").replace("\\", "/"))
+    if not rel.parts or rel.is_absolute() or any(piece in ("..", ".") for piece in rel.parts):
+        raise ValueError("Ungültiger Dateipfad.")
+    if rel.as_posix().lower() == "part.yaml":
+        raise ValueError("Die part.yaml gehört zum Bauteil und lässt sich nicht einzeln löschen.")
+    target = part_dir.joinpath(*rel.parts)
+    if not target.is_file():
+        raise ValueError(f"Datei nicht gefunden: {rel.as_posix()}")
+    try:
+        target.resolve().relative_to(part_dir.resolve())
+    except ValueError:
+        raise ValueError("Ungültiger Dateipfad.") from None
+    try:
+        trashed = trash.move_to_trash(root, target)
+    except OSError as e:
+        raise ValueError(
+            f"{target.name} lässt sich nicht löschen. Ist die Datei gerade geöffnet? ({e})"
+        ) from e
+    folder = target.parent
+    if folder != part_dir:
+        try:
+            folder.rmdir()  # gelingt nur, wenn der Unterordner jetzt leer ist
+        except OSError:
+            pass
+    return trashed

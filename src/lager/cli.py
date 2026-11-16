@@ -20,15 +20,18 @@ from . import __version__, categories as catmod
 from . import db as dbmod
 from . import files as filesmod
 from . import indexer
+from . import labels as labelmod
 from . import parts as partmod
 from . import root as rootmod
 from . import search as searchmod
+from . import trash as trashmod
 from .config import (
     CONFIG_PATH,
     load_config,
     resolve_lager_root,
     save_config,
     set_lager_root,
+    set_public_url,
 )
 
 app = typer.Typer(
@@ -43,7 +46,9 @@ index_app = typer.Typer(help="Such-Index (SQLite) verwalten. Er wird aus den Ord
 app.add_typer(root_app, name="root")
 app.add_typer(cat_app, name="category")
 app.add_typer(part_app, name="part")
+qr_app = typer.Typer(help="QR-Codes für Etiketten: Adresse festlegen, Bilder erzeugen.")
 app.add_typer(index_app, name="index")
+app.add_typer(qr_app, name="qr")
 
 
 def force_utf8_output() -> None:
@@ -266,6 +271,7 @@ def cat_list(as_json: bool = typer.Option(False, "--json")) -> None:
                 "id": c["id"],
                 "label": c.get("label", c["id"]),
                 "teile": rootmod.count_parts(d) if d.is_dir() else 0,
+                "unterkategorien": catmod.subcategories(root, c["id"]),
             }
         )
     _print({"kategorien": cats}, as_json)
@@ -295,8 +301,14 @@ def cat_remove(
 
 @part_app.command("new")
 def part_new(
-    bezeichnung: str = typer.Argument(..., help="Bauteil-Bezeichnung, z. B. IRLZ44N"),
+    bezeichnung: str = typer.Argument(
+        ..., help="Bauteil-Bezeichnung, z. B. IRLZ44N oder \"Arduino Mega 2560\""
+    ),
     category: str = typer.Option(..., "--category", "-c", help="Kategorie-ID"),
+    subcategory: str = typer.Option(
+        "", "--subcategory", "-s",
+        help="Unterkategorie (Ordner in der Kategorie), z. B. Shields; wird bei Bedarf angelegt",
+    ),
     name: str = typer.Option("", "--name", "-n", help="Beschreibung"),
     manufacturer: str = typer.Option("", "--manufacturer", "-m", help="Hersteller"),
     quantity: int = typer.Option(0, "--quantity", "-q", help="Anfangsmenge"),
@@ -316,7 +328,7 @@ def part_new(
         "aliases": [a.strip() for a in aliases.split(",") if a.strip()],
     }
     try:
-        pdir = partmod.create_part(root, category, bezeichnung, data)
+        pdir = partmod.create_part(root, category, bezeichnung, data, subcategory)
     except ValueError as e:
         typer.echo(f"Fehler: {e}", err=True)
         raise typer.Exit(1)
@@ -461,6 +473,95 @@ def part_edit(
     _print({"teil": pdir.name, "ordner": str(pdir), "geaendert": sorted(changes)}, as_json)
 
 
+@part_app.command("rename")
+def part_rename(
+    bezeichnung: str = typer.Argument(..., help="Bisherige Bezeichnung, z. B. ARDUINOMEGA"),
+    neu: str = typer.Argument(..., help="Neue Bezeichnung, z. B. \"Arduino Mega 2560\""),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Benennt ein Bauteil um (Ordner und part.yaml). Die alte Bezeichnung bleibt als Alias."""
+    root = _require_root()
+    try:
+        pdir = partmod.move_part(root, bezeichnung, new_id=neu)
+    except ValueError as e:
+        _fail(str(e))
+    _refresh_index(root)
+    _print({"teil": pdir.name, "ordner": str(pdir), "vorher": bezeichnung}, as_json)
+
+
+@part_app.command("move")
+def part_move(
+    bezeichnung: str = typer.Argument(..., help="Bauteil-Bezeichnung, z. B. IRLZ44N"),
+    category: Optional[str] = typer.Option(None, "--category", "-c", help="Neue Kategorie-ID"),
+    subcategory: Optional[str] = typer.Option(
+        None, "--subcategory", "-s",
+        help="Unterkategorie (Ordner in der Kategorie); \"\" = direkt in die Kategorie",
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Verschiebt ein Bauteil in eine andere Kategorie oder Unterkategorie."""
+    if category is None and subcategory is None:
+        _fail("Nichts zu verschieben. --category und/oder --subcategory angeben.")
+    root = _require_root()
+    try:
+        pdir = partmod.move_part(root, bezeichnung, category=category, subcategory=subcategory)
+    except ValueError as e:
+        _fail(str(e))
+    _refresh_index(root)
+    cat_id, sub = partmod.location_of(root, pdir)
+    _print(
+        {"teil": pdir.name, "ordner": str(pdir), "kategorie": cat_id, "unterkategorie": sub},
+        as_json,
+    )
+
+
+@part_app.command("remove")
+def part_remove(
+    bezeichnung: str = typer.Argument(..., help="Bauteil-Bezeichnung, z. B. IRLZ44N"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Löscht ein Bauteil: Sein Ordner wandert in den Papierkorb des Lagers (_papierkorb)."""
+    root = _require_root()
+    pdir = partmod.find_part_dir(root, bezeichnung)
+    if pdir is None:
+        _fail(f"Teil nicht gefunden: {bezeichnung}")
+    try:
+        trashed = partmod.delete_part(root, pdir.name)
+    except ValueError as e:
+        _fail(str(e))
+    _refresh_index(root)
+    _print({"geloescht": pdir.name, "papierkorb": str(trashed)}, as_json)
+
+
+@part_app.command("detach")
+def part_detach(
+    bezeichnung: str = typer.Argument(..., help="Bauteil-Bezeichnung, z. B. IRLZ44N"),
+    dateien: List[str] = typer.Argument(
+        ..., help="Dateien im Bauteil-Ordner, z. B. datasheet.pdf oder kicad/TO-220.kicad_mod"
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Löscht Dateien eines Bauteils: Sie wandern in den Papierkorb des Lagers (_papierkorb)."""
+    root = _require_root()
+    pdir = partmod.find_part_dir(root, bezeichnung)
+    if pdir is None:
+        _fail(f"Teil nicht gefunden: {bezeichnung}")
+    removed: list[str] = []
+    try:
+        for name in dateien:
+            filesmod.remove_file(root, pdir, name)
+            removed.append(name)
+    except ValueError as e:
+        if removed:
+            _refresh_index(root)
+        _fail(f"{e} (bereits gelöscht: {', '.join(removed) or 'nichts'})")
+    _refresh_index(root)
+    _print(
+        {"teil": pdir.name, "geloescht": removed, "papierkorb": str(trashmod.trash_dir(root))},
+        as_json,
+    )
+
+
 @part_app.command("search")
 def part_search(
     begriff: str = typer.Argument(
@@ -535,6 +636,85 @@ def index_status(as_json: bool = typer.Option(False, "--json")) -> None:
         typer.echo("Tipp: lager index rebuild")
 
 
+# ------------------------------------------------------------------- qr
+
+
+def _saved_public_url(cfg: dict) -> str:
+    return str((cfg.get("server") or {}).get("public_url") or "").strip()
+
+
+@qr_app.command("url")
+def qr_url(
+    adresse: Optional[str] = typer.Argument(
+        None, help="Neue Adresse, z. B. http://lager.fritz.box:8080. Ohne Angabe: nur anzeigen."
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Zeigt oder speichert die Adresse, die in den QR-Codes steht (server.public_url)."""
+    cfg = load_config()
+    if adresse is not None:
+        try:
+            url = labelmod.normalize_base_url(adresse)
+        except ValueError as e:
+            _fail(str(e))
+        set_public_url(url)
+        _print(
+            {"adresse": url, "gespeichert": True, "hinweise": labelmod.check_base_url(url)}, as_json
+        )
+        return
+    saved = _saved_public_url(cfg)
+    result = {
+        "adresse": saved,
+        "gespeichert": bool(saved),
+        "vorschlag": labelmod.suggest_base_url(int(cfg["server"]["port"])),
+        "hinweise": labelmod.check_base_url(saved) if saved else [],
+    }
+    _print(result, as_json)
+    if not saved and not as_json:
+        typer.echo("Tipp: lager qr url <adresse> speichert die Adresse für alle QR-Codes.")
+
+
+@qr_app.command("make")
+def qr_make(
+    teile: List[str] = typer.Argument(..., help="Eine oder mehrere Bauteil-Bezeichnungen"),
+    fmt: str = typer.Option("svg", "--format", "-f", help="Bildformat: svg oder png"),
+    out: Path = typer.Option(Path("."), "--out", "-o", help="Zielordner für die Bilder"),
+    url: Optional[str] = typer.Option(
+        None, "--url", help="Adresse für diesen Aufruf statt der gespeicherten"
+    ),
+    scale: int = typer.Option(10, "--scale", help="Bildpunkte je QR-Punkt (nur png), 1 bis 50"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Schreibt je Bauteil ein QR-Bild (<BEZEICHNUNG>.svg oder .png) mit der Adresse seiner Seite.
+
+    Ganze Etiketten-Seiten zum Drucken gibt es im Web unter /etiketten.
+    """
+    root = _require_root()
+    cfg = load_config()
+    try:
+        base = labelmod.normalize_base_url(url if url is not None else _saved_public_url(cfg))
+    except ValueError as e:
+        _fail(f"{e} Speichern mit: lager qr url <adresse>, oder --url angeben.")
+    fmt = fmt.strip().lower()
+    folders = []
+    for name in teile:
+        pdir = partmod.find_part_dir(root, name)
+        if pdir is None:
+            _fail(f"Teil nicht gefunden: {name}")
+        folders.append(pdir)
+    codes = []
+    try:
+        out.mkdir(parents=True, exist_ok=True)
+        for pdir in folders:
+            link = labelmod.part_url(base, pdir.name)
+            target = out / f"{pdir.name}.{fmt}"
+            target.write_bytes(labelmod.qr_image(link, fmt, scale))
+            codes.append({"part": pdir.name, "url": link, "datei": str(target)})
+    except (ValueError, OSError) as e:
+        _fail(str(e))
+    _print({"adresse": base, "codes": codes}, as_json)
+
+
 # ---------------------------------------------------------------- serve
 
 
@@ -555,4 +735,6 @@ def serve(
     bind_host = host or str(cfg["server"]["host"])
     bind_port = port or int(cfg["server"]["port"])
     typer.echo(f"Lager-Server: http://{bind_host}:{bind_port}  (Beenden mit Strg+C)")
-    uvicorn.run(create_app(root, cfg), host=bind_host, port=bind_port, log_level="info")
+    uvicorn.run(
+        create_app(root, cfg, bind_host=bind_host), host=bind_host, port=bind_port, log_level="info"
+    )

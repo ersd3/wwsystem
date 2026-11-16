@@ -80,6 +80,11 @@ def search(
     if category:
         where.append("p.category_id = :category")
         params["category"] = category
+    # Bezeichnungen dürfen Leerzeichen enthalten: Für die Reihenfolge zählt deshalb
+    # zuerst die ganze Eingabe ("arduino mega"), dann ihr erstes Wort.
+    whole = " ".join(terms)
+    params["whole"] = whole
+    params["whole_prefix"] = f"{_escape_like(whole)}%"
     params["first"] = terms[0] if terms else ""
     params["first_prefix"] = f"{_escape_like(terms[0])}%" if terms else ""
     params["limit"] = max(1, min(int(limit), MAX_LIMIT))
@@ -89,9 +94,11 @@ def search(
         + (" WHERE " + " AND ".join(where) if where else "")
         + """
         ORDER BY CASE
-                   WHEN :first <> '' AND lower(p.part) = :first THEN 0
-                   WHEN :first <> '' AND lower(p.part) LIKE :first_prefix ESCAPE '\\' THEN 1
-                   ELSE 2
+                   WHEN :whole <> '' AND lower(p.part) = :whole THEN 0
+                   WHEN :whole <> '' AND lower(p.part) LIKE :whole_prefix ESCAPE '\\' THEN 1
+                   WHEN :first <> '' AND lower(p.part) = :first THEN 2
+                   WHEN :first <> '' AND lower(p.part) LIKE :first_prefix ESCAPE '\\' THEN 3
+                   ELSE 4
                  END,
                  p.part COLLATE NOCASE, p.rel_path
         LIMIT :limit
@@ -107,6 +114,21 @@ def get_part(conn: sqlite3.Connection, part: str) -> dict[str, Any] | None:
         (part.strip(),),
     ).fetchone()
     return _part_dict(conn, row) if row is not None else None
+
+
+def find_by_alias(conn: sqlite3.Connection, alias: str) -> dict[str, Any] | None:
+    """Ein Bauteil über einen Alias, aber nur wenn genau eines diesen Alias trägt.
+
+    Damit führt die alte Bezeichnung eines umbenannten Bauteils weiter zu ihm,
+    zum Beispiel von einem schon gedruckten QR-Etikett aus.
+    """
+    rows = conn.execute(
+        _PART_SELECT
+        + " WHERE p.id IN (SELECT part_id FROM part_aliases WHERE alias = ? COLLATE NOCASE)"
+        + " ORDER BY p.rel_path LIMIT 2",
+        (alias.strip(),),
+    ).fetchall()
+    return _part_dict(conn, rows[0]) if len(rows) == 1 else None
 
 
 def list_categories(conn: sqlite3.Connection) -> list[dict[str, Any]]:

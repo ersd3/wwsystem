@@ -8,3 +8,6 @@ dist/
 
 # Abgeleiteter Such-Index (wird mit `lager index rebuild` neu aufgebaut)
 .lager/
+
+# Start-Konfiguration für den Browser-Bereich der Claude-App (HANDOVER.md §7a)
+.claude/launch.json

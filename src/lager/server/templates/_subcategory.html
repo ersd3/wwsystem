@@ -1,0 +1,15 @@
+{# Auswahl der Unterkategorie, für new.html und edit.html.
+   Der Wert einer Auswahl ist "<kategorie>/<unterkategorie>". static/app.js zeigt nur die
+   Unterkategorien der gewählten Kategorie; ohne JavaScript stehen alle in der Liste. #}
+<label for="unterkategorie">Unterkategorie</label>
+<select id="unterkategorie" name="unterkategorie">
+  <option value="">– keine –</option>
+  {% for u in unterkategorien %}
+  {% set wert = u.kategorie ~ "/" ~ u.pfad %}
+  <option value="{{ wert }}" data-kategorie="{{ u.kategorie }}" data-kurz="{{ u.pfad }}"{% if form.unterkategorie == wert %} selected{% endif %}>{{ u.label }} / {{ u.pfad }}</option>
+  {% endfor %}
+</select>
+<label for="neue_unterkategorie">oder neue Unterkategorie anlegen</label>
+<input id="neue_unterkategorie" type="text" name="neue_unterkategorie" value="{{ form.neue_unterkategorie }}"
+       placeholder="z. B. Shields" autocomplete="off">
+<p class="hint">Eine Unterkategorie ist ein Ordner in der Kategorie; ihr Name wird so angezeigt, wie er hier steht.</p>

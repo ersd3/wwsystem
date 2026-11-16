@@ -1,5 +1,15 @@
 {% extends "base.html" %}
 {% block title %}{{ teil.part if teil else "Nicht gefunden" }} – Lager{% endblock %}
+{# Knopf zum Löschen einer Datei. static/app.js fragt vorher nach (data-confirm). #}
+{% macro remove_button(f) %}
+  {% if not schreibschutz %}
+  <form action="/p/{{ teil.part | urlencode }}/dateien/loeschen" method="post"
+        data-confirm="{{ f.path }} löschen? Die Datei kommt in den Papierkorb des Lagers.">
+    <input type="hidden" name="datei" value="{{ f.path }}">
+    <button type="submit" class="quiet remove" title="{{ f.path }} löschen" aria-label="{{ f.path }} löschen">✕</button>
+  </form>
+  {% endif %}
+{% endmacro %}
 {% block main %}
   {% if not teil %}
   <p class="empty">Kein Bauteil mit der Bezeichnung „{{ gesucht }}“ gefunden.</p>
@@ -9,7 +19,7 @@
     <h1>{{ teil.part }}</h1>
     {% if teil.name %}<p class="lead">{{ teil.name }}</p>{% endif %}
     {% if not schreibschutz %}
-    <p><a class="quiet-link" href="/p/{{ teil.part | urlencode }}/bearbeiten">Angaben bearbeiten</a></p>
+    <p><a class="quiet-link" href="/p/{{ teil.part | urlencode }}/bearbeiten">Bearbeiten, umbenennen oder löschen</a></p>
     {% endif %}
 
     {% set sheets = teil.files | selectattr("kind", "equalto", "datasheet") | list %}
@@ -20,11 +30,12 @@
       {% if sheets %}
       <ul class="files">
         {% for f in sheets %}
-        <li>
+        <li class="file-row">
           <a class="file primary" href="/files/{{ (teil.path ~ '/' ~ f.path) | urlencode }}" target="_blank" rel="noopener">
             <span class="file-name">{{ f.path }}</span>
             <span class="file-meta">PDF öffnen · {{ f.size | filesize }}</span>
           </a>
+          {{ remove_button(f) }}
         </li>
         {% endfor %}
       </ul>
@@ -56,28 +67,50 @@
       <h2>Weitere Dateien</h2>
       <ul class="files">
         {% for f in others %}
-        <li>
+        <li class="file-row">
           <a class="file" href="/files/{{ (teil.path ~ '/' ~ f.path) | urlencode }}">
             <span class="file-name">{{ f.path }}</span>
             <span class="file-meta">{{ kind_label(f.kind) }} · {{ f.size | filesize }}</span>
           </a>
+          {{ remove_button(f) }}
         </li>
         {% endfor %}
       </ul>
     </section>
     {% endif %}
 
+    {% if qr %}
+    <section>
+      <h2>QR-Code</h2>
+      <details class="settings">
+        <summary>QR-Code zu diesem Bauteil zeigen</summary>
+        <div class="qr-box">{{ qr.svg | safe }}</div>
+        <p class="path">{{ qr.data }}</p>
+        <p class="hint">Mit der Handy-Kamera gelesen, öffnet er diese Seite auf dem Handy.</p>
+      </details>
+      <p><a class="quiet-link" href="/etiketten?teil={{ teil.part | urlencode }}">Etikett drucken</a></p>
+    </section>
+    {% endif %}
+
     {% if not schreibschutz %}
     <section>
       <h2>Dateien hinzufügen</h2>
-      <form action="/p/{{ teil.part | urlencode }}/dateien" method="post" enctype="multipart/form-data" class="stack">
+      {# Mit JavaScript lädt static/app.js gleich nach der Auswahl hoch und zeigt den Fortschritt. #}
+      <form action="/p/{{ teil.part | urlencode }}/dateien" method="post" enctype="multipart/form-data"
+            class="stack" data-auto-upload>
         <label for="dateien">Datenblatt und andere Dateien</label>
         <input id="dateien" type="file" name="dateien" multiple required>
+        <div class="upload-status" hidden>
+          <progress max="100" value="0"></progress>
+          <p class="upload-text" role="status"></p>
+        </div>
         <p class="hint">
+          Mehrere Dateien auf einmal sind möglich.
+          <span class="jsonly">Nach der Auswahl startet das Hochladen von selbst.</span>
           PDFs kommen direkt in den Bauteil-Ordner, 3D-Modelle, KiCad-Dateien und Bilder in ihre
           Unterordner. Vorhandene Dateien werden nicht überschrieben.
         </p>
-        <button type="submit">Hochladen</button>
+        <button type="submit" class="nojs">Hochladen</button>
       </form>
     </section>
     {% endif %}

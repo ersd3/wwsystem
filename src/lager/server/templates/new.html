@@ -9,8 +9,11 @@
     <form action="/neu" method="post" enctype="multipart/form-data" class="stack">
       <label for="bezeichnung">Bezeichnung</label>
       <input id="bezeichnung" type="text" name="bezeichnung" value="{{ form.bezeichnung }}" required
-             placeholder="z. B. IRLZ44N" autocomplete="off" autocapitalize="characters" spellcheck="false">
-      <p class="hint">Wird zum Ordnernamen: Großbuchstaben, Ziffern und - _ . +</p>
+             placeholder="z. B. IRLZ44N oder Arduino Mega 2560" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p class="hint">
+        Wird zum Ordnernamen und bleibt so geschrieben, wie sie hier steht, auch mit Leerzeichen
+        und Kleinbuchstaben. Nicht erlaubt sind &lt; &gt; : " / \ | ? *
+      </p>
 
       <label for="kategorie">Kategorie</label>
       <select id="kategorie" name="kategorie">
@@ -22,6 +25,7 @@
       <label for="neue_kategorie">oder neue Kategorie anlegen</label>
       <input id="neue_kategorie" type="text" name="neue_kategorie" value="{{ form.neue_kategorie }}"
              placeholder="z. B. Kondensatoren" autocomplete="off">
+      {% include "_subcategory.html" %}
 
       <label for="name">Beschreibung</label>
       <input id="name" type="text" name="name" value="{{ form.name }}"

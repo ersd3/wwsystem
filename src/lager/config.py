@@ -16,6 +16,8 @@ CONFIG_PATH = PROJECT_DIR / "config.yaml"
 # Die Zeile `lager_root: ...` auf oberster Ebene (ein Text in doppelten
 # Anführungszeichen ist in JSON und YAML gleich, auch mit Windows-Pfaden).
 _LAGER_ROOT_LINE = re.compile(r"^lager_root:.*$", re.MULTILINE)
+# Die eingerückte Zeile `public_url: ...` unterhalb von `server:`.
+_PUBLIC_URL_LINE = re.compile(r"^(?P<indent>[ \t]+)public_url:.*$", re.MULTILINE)
 
 DEFAULTS: dict[str, Any] = {
     "lager_root": "",
@@ -83,3 +85,34 @@ def set_lager_root(value: str, config_path: Path = CONFIG_PATH) -> Path:
     cfg["lager_root"] = stored
     save_config(cfg, config_path)
     return target
+
+
+def set_public_url(value: str, config_path: Path = CONFIG_PATH) -> None:
+    """Schreibt server.public_url in die config.yaml (die Adresse in den QR-Codes).
+
+    Wie bei set_lager_root wird nur die eine Zeile ersetzt, damit Kommentare bleiben.
+    """
+    if config_path.exists():
+        text = config_path.read_text(encoding="utf-8")
+        new_text, count = _PUBLIC_URL_LINE.subn(
+            lambda match: f"{match.group('indent')}public_url: {json.dumps(value, ensure_ascii=False)}",
+            text,
+            count=1,
+        )
+        if count == 1 and _public_url_in(new_text) == value:
+            config_path.write_text(new_text, encoding="utf-8")
+            return
+
+    cfg = load_config(config_path)
+    cfg["server"]["public_url"] = value
+    save_config(cfg, config_path)
+
+
+def _public_url_in(text: str) -> Any:
+    """server.public_url aus einem YAML-Text, oder None (auch bei ungültigem YAML)."""
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError:
+        return None
+    server = data.get("server") if isinstance(data, dict) else None
+    return server.get("public_url") if isinstance(server, dict) else None

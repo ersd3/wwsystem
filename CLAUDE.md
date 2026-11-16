@@ -26,9 +26,14 @@ nächsten Schritte. Entscheidungen und Begründungen stehen in [KONZEPT.md](KONZ
 ```bash
 .venv/Scripts/python.exe -m pytest tests -q        # alle Tests, müssen bestehen
 .venv/Scripts/lager.exe --help                     # CLI
-.venv/Scripts/lager.exe serve                      # Server auf http://127.0.0.1:8080
+.venv/Scripts/lager.exe serve                      # Server auf http://127.0.0.1:8080 — mit dem ECHTEN Lager
+.venv/Scripts/python.exe tools/demo_server.py      # Wegwerf-Lager + Server auf http://127.0.0.1:8765 zum Prüfen
 .venv/Scripts/python.exe -m pip install -r requirements.txt -e .   # nach neuen Paketen
 ```
+
+**Achtung, echtes Lager:** Die `config.yaml` im Projekt zeigt auf das eigene Lager von Lukas.
+Schreibende `lager`-Befehle und `lager serve` ändern dort echte Daten. Zum Ausprobieren nur
+lesende Befehle, die Tests oder `tools/demo_server.py` nehmen (HANDOVER.md §7a).
 
 ## So arbeitest du hier
 
@@ -58,3 +63,7 @@ nächsten Schritte. Entscheidungen und Begründungen stehen in [KONZEPT.md](KONZ
 - **Umlaute:** Dateien immer mit `encoding="utf-8"` lesen und schreiben.
 - **Echte Daten:** Der Ordner `lager/` im Projekt ist das Beispiel-Lager und liegt im öffentlichen
   Repository. Keine privaten Daten oder fremden Datenblätter hinein committen.
+- **`config.yaml` ist eingecheckt, bei Lukas aber lokal geändert** (Pfad zu seinem eigenen Lager).
+  Diese Änderung nie mit committen: Dateien einzeln mit `git add <datei>` vormerken, nicht `git add -A`.
+- **Tests öffnen nie ein echtes Fenster und nutzen kein echtes Netz** (Fixture `netz`,
+  `dialogs._run_dialog` ersetzen).
