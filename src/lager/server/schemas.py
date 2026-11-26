@@ -92,6 +92,29 @@ class FileDeleteResult(BaseModel):
     teil: Part
 
 
+class TrashEntry(BaseModel):
+    id: str  # Name des Zeit-Ordners im Papierkorb, z. B. 20261126T205502Z
+    kind: str  # part | file
+    name: str  # Bezeichnung des Bauteils bzw. Name der Datei
+    part: str  # Bauteil, zu dem der Eintrag gehört(e)
+    path: str  # alter Platz im Lager
+    deleted_at: str  # ISO 8601, UTC
+    location: str  # jetziger Ort, relativ zum Lager-Root
+    problem: str  # warum er sich nicht zurückholen lässt; leer = es geht
+
+
+class TrashList(BaseModel):
+    papierkorb: str  # Ordner des Papierkorbs (absolut)
+    anzahl: int
+    eintraege: List[TrashEntry]
+
+
+class TrashRestoreResult(BaseModel):
+    wiederhergestellt: str  # neuer Ort, relativ zum Lager-Root
+    eintrag: TrashEntry
+    teil: Optional[Part] = None
+
+
 class SearchResult(BaseModel):
     suche: str
     kategorie: str

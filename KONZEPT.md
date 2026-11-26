@@ -1,6 +1,6 @@
 # Konzept — Bauteile-Lagersystem ("Lager")
 
-Stand: 2026-11-14 · Version 0.6.0 · Status: Phase 0.1, 0.2, 1, 2 und 3a (QR-Etiketten) umgesetzt; von Lukas am Handy geprüft (Seiten, PDF öffnen, QR-Code lesen) · Als Nächstes: offen, Vorschläge in HANDOVER.md §8 · Stand je Phase: §10
+Stand: 2026-11-26 · Version 0.7.0 · Status: Phase 0.1, 0.2, 1, 2 und 3a (QR-Etiketten) umgesetzt, dazu Verwalten mit Papierkorb; von Lukas am Handy geprüft (Seiten, PDF öffnen, QR-Code lesen) und am PC (Umbenennen, Löschen) · Als Nächstes: offen, Vorschläge in HANDOVER.md §9 · Stand je Phase: §10
 
 ## 1. Ziel
 
@@ -44,7 +44,7 @@ Das System ist in erster Linie für die **private Nutzung** gedacht.
 ├── categories.yaml          # Kategorien (Marker + Liste)
 ├── _vorlage/                # ignoriert vom Scanner (Unterstrich-/Punkt-Präfix)
 │   └── part.yaml
-├── _papierkorb/             # Gelöschtes, je Löschzeitpunkt ein Ordner (§6b, D19)
+├── _papierkorb/             # Gelöschtes, je Löschen ein Zeit-Ordner (§6b, D19, D22)
 └── <kategorie>/             # Ebene 1 = Kategorie (Ordnername = id)
     └── <Unterkategorie>/    # optional, bis zu 3 Ebenen; Ordnername = Anzeigename
         └── <Bezeichnung>/   # Bauteil-Ordner, Name = Bezeichnung des Bauteils
@@ -74,6 +74,15 @@ Namensregeln:
 ```yaml
 lager_root: "lager"   # leer = Auto-Erkennung; relativ = zum Projektordner; absolut = direkt
 ```
+
+**Jeder Rechner hat seine eigene `config.yaml` (D23).** Sie steht nicht in Git
+(`.gitignore`). Eingecheckt ist die Vorlage `config.example.yaml` mit allen Einträgen und
+Erklärungen. Fehlt die `config.yaml`, arbeitet das Programm mit Standardwerten (Lager-Ordner
+über die Auto-Erkennung, also zuerst das Beispiel-Lager `lager/` im Projekt). Beim ersten
+Speichern (`lager root set`, `lager init`, „Lager-Ordner ändern“, „Adresse merken“,
+`lager qr url <adresse>`) legt das Programm sie als Kopie der Vorlage an; so bleiben die
+Kommentare erhalten. Ein `git pull` kann die Einstellungen eines Rechners deshalb nie
+überschreiben, und der spätere Server bekommt seine eigenen.
 
 Auflösungsreihenfolge:
 
@@ -178,7 +187,7 @@ Lagerfach und die Dateinamen im Bauteil-Ordner (`pdf` findet also alle Bauteile 
 Vorn stehen Treffer, deren Bezeichnung der ganzen Eingabe entspricht oder mit ihr beginnt
 (`arduino mega`), danach die, die mit dem ersten Begriff beginnen.
 
-## 6b. Bauteile und Dateien verwalten (Phase 1, erweitert in 0.6.0 — umgesetzt)
+## 6b. Bauteile und Dateien verwalten (Phase 1, erweitert in 0.6.0 und 0.7.0 — umgesetzt)
 
 Drei Wege führen zum selben Ergebnis im Ordner: die CLI, die Web-Oberfläche und der Explorer.
 
@@ -190,10 +199,20 @@ Drei Wege führen zum selben Ergebnis im Ordner: die CLI, die Web-Oberfläche un
 | Dateien hinzufügen | `lager part attach <Bezeichnung> <datei> …` (`--move` verschiebt) | Bauteilseite, „Dateien hinzufügen“: lädt gleich nach der Auswahl hoch, mit Fortschrittsbalken |
 | Datei löschen | `lager part detach <Bezeichnung> <datei> …` | Bauteilseite, Knopf „✕“ neben der Datei |
 | Datenblatt öffnen | `lager part open <Bezeichnung>` (`--file`, `--folder`) | Knopf „PDF“ in der Trefferliste |
-| Angaben ändern | `lager part edit <Bezeichnung> --location B-07 …` | Bauteilseite, „Bearbeiten, umbenennen oder löschen“ |
-| Umbenennen | `lager part rename <alt> "<neu>"` | Seite „Bearbeiten“, Feld „Bezeichnung“ |
+| Angaben ändern | `lager part edit <Bezeichnung> --location B-07 …` | Bauteilseite, Knopf „Bearbeiten“ |
+| Umbenennen | `lager part rename <alt> "<neu>"` | Bauteilseite, Knopf „Umbenennen“ (eigene Seite) |
 | In andere Kategorie oder Unterkategorie | `lager part move <Bezeichnung> -c <kategorie> -s <Unterkategorie>` | Seite „Bearbeiten“, Felder „Kategorie“ und „Unterkategorie“ |
-| Bauteil löschen | `lager part remove <Bezeichnung>` | Seite „Bearbeiten“, unten „Bauteil löschen“ (mit Häkchen „Ja, löschen“) |
+| Bauteil löschen | `lager part remove <Bezeichnung>` | Bauteilseite, Knopf „Löschen“, dann Rückfrage „Ja, löschen“ |
+| Papierkorb ansehen | `lager trash list` | Link „Papierkorb“ unten auf jeder Seite |
+| Aus dem Papierkorb zurückholen | `lager trash restore <ID>` | Seite „Papierkorb“, Knopf „Wiederherstellen“ |
+| Papierkorb im Explorer öffnen | `lager trash open` | Seite „Papierkorb“, Knopf „Im Explorer öffnen“ (nur am Server-PC) |
+
+**Die Bauteilseite (D24)** zeigt unter der Bezeichnung drei gleich breite Knöpfe mit Symbol:
+„Bearbeiten“, „Umbenennen“ und „Löschen“ (rot). Am Handy steht das Symbol über dem Wort, auf
+breiten Bildschirmen daneben. Jeder Knopf führt auf eine eigene Seite: „Bearbeiten“ ändert die
+Angaben und den Ort (Kategorie, Unterkategorie), „Umbenennen“ nur die Bezeichnung, „Löschen“
+fragt nach und sagt, wohin das Bauteil kommt. Die Symbole sind eigene, einfache Zeichnungen
+(`templates/_icons.html`), ohne zusätzliche Bibliothek.
 
 Regeln:
 
@@ -207,10 +226,22 @@ Regeln:
   direkt in der neuen Kategorie.
 - **Löschen heißt in den Papierkorb (D19).** Ein gelöschtes Bauteil oder eine gelöschte Datei
   wird nach `<lager_root>/_papierkorb/<Zeitpunkt in UTC>/<derselbe Pfad wie im Lager>`
-  verschoben und taucht in Suche und Index nicht mehr auf. Zurückholen und endgültiges
-  Löschen gehen im Explorer; im Papierkorb liegt dazu eine `LIESMICH.txt`. Die `part.yaml`
+  verschoben und taucht in Suche und Index nicht mehr auf. Jedes Löschen bekommt einen eigenen
+  Zeit-Ordner, auch zwei in derselben Sekunde (dann mit Nummer, `…Z-2`). Die `part.yaml`
   lässt sich nicht einzeln löschen. Ist eine Datei gerade geöffnet (etwa ein Datenblatt im
   PDF-Programm), lehnt Windows das Verschieben ab; das Programm meldet das und ändert nichts.
+- **Der Papierkorb des Lagers ist nicht der Papierkorb von Windows.** Er ist ein Ordner im
+  Lager. Damit man ihn findet, nennen ihn die Rückfrage vor dem Löschen und die Seite
+  „Papierkorb“ mit vollem Pfad, und die Meldung nach dem Löschen verlinkt auf die Seite.
+- **Zurückholen (D22):** Die Seite „Papierkorb“ (und `lager trash list`) zeigt je Eintrag
+  Name, Art, alten Platz und Zeitpunkt. „Wiederherstellen“ bringt ein Bauteil in seine
+  Kategorie und Unterkategorie zurück (eine fehlende Unterkategorie wird angelegt) und eine
+  Datei in ihr Bauteil (bei gleichem Dateinamen mit Nummer, nichts wird überschrieben). Geht
+  das nicht, steht der Grund am Eintrag, und es gibt keinen Knopf: Die Bezeichnung ist
+  inzwischen wieder vergeben, am alten Platz liegt schon ein Ordner, die Kategorie fehlt, oder
+  das Bauteil einer Datei gibt es an seinem alten Platz nicht mehr.
+- **Endgültig gelöscht wird nur im Explorer.** Dort landet es dann im Papierkorb von Windows.
+  Im Programm gibt es dafür bewusst keinen Knopf.
 - **Hochladen im Web:** Mehrere Dateien auf einmal sind möglich. Mit JavaScript startet das
   Hochladen gleich nach der Auswahl im Dateifenster, ein Balken zeigt den Fortschritt, danach
   meldet die Seite, was hochgeladen wurde. Ohne JavaScript bleibt der Knopf „Hochladen“.
@@ -288,7 +319,7 @@ Schnittstellen:
 - **MCP** (Phase 4): Tools `search_parts, get_part, create_part, …` für die Datenpflege
   durch lokale Agenten
 
-### Stand des Servers (2026-11-14)
+### Stand des Servers (2026-11-26)
 
 Start: `lager serve` (Adresse und Port aus `config.yaml`, Standard `127.0.0.1:8080`).
 Für das Handy im WLAN: `lager serve --host 0.0.0.0`, dann am Handy `http://<name-oder-IP-des-PCs>:8080`.
@@ -299,18 +330,22 @@ Nach einem Update des Programms den Server neu starten.
 | `/` | Suche, Kategorien, Trefferliste; Knopf „PDF“ öffnet das Datenblatt direkt |
 | `/p/<Bezeichnung>` | Bauteilseite: Datenblätter, Angaben, weitere Dateien (je mit „✕“ zum Löschen), QR-Code, „Dateien hinzufügen“. Eine alte Bezeichnung leitet auf die neue weiter. |
 | `/neu` | Formular „Neues Bauteil“, auf Wunsch mit neuer Kategorie, Unterkategorie und Dateien |
-| `/p/<Bezeichnung>/bearbeiten` | Angaben ändern, umbenennen, in andere Kategorie oder Unterkategorie verschieben, Bauteil löschen |
-| `POST /p/<Bezeichnung>/loeschen`, `POST /p/<Bezeichnung>/dateien/loeschen` | Bauteil oder Datei in den Papierkorb (Formulare der Seiten) |
+| `/p/<Bezeichnung>/bearbeiten` | Angaben ändern, in andere Kategorie oder Unterkategorie verschieben |
+| `/p/<Bezeichnung>/umbenennen` | Bezeichnung ändern; die alte wird Alias |
+| `/p/<Bezeichnung>/loeschen` | Rückfrage vor dem Löschen; `POST` mit `sicher=1` löscht |
+| `POST /p/<Bezeichnung>/dateien/loeschen` | Datei in den Papierkorb (Knopf „✕“) |
+| `/papierkorb` | Inhalt des Papierkorbs; `POST /papierkorb/wiederherstellen` holt einen Eintrag zurück, `POST /papierkorb/oeffnen` öffnet den Ordner im Explorer (nur am Server-PC) |
 | `/etiketten` | QR-Etiketten auswählen, ansehen und drucken; `POST /etiketten/adresse` merkt die Adresse (§6c) |
 | `/suche?q=…` | nur die Trefferliste; `static/app.js` lädt sie beim Tippen im Suchfeld nach |
 | `/anmelden`, `POST /abmelden` | Anmelden im Browser, wenn ein `write_token` gesetzt ist |
 | `/files/<pfad wie im Lager-Ordner>` | Datei ausliefern; PDF und Bilder öffnet der Browser, alles andere wird geladen |
-| Fußbereich jeder Seite | Zahl der Bauteile und Dateien, Zeitpunkt des Einlesens, Lager-Ordner, „Ordner neu einlesen“, „Lager-Ordner ändern“ mit „Ordner auswählen …“ |
+| Fußbereich jeder Seite | Zahl der Bauteile und Dateien, Zeitpunkt des Einlesens, Lager-Ordner, Link „Papierkorb“ mit Zahl der Einträge, „Ordner neu einlesen“, „Lager-Ordner ändern“ mit „Ordner auswählen …“ |
 | `POST /einstellungen/lager-ordner`, `POST /einstellungen/ordner-waehlen` | Lager-Ordner umstellen; Ordner-Auswahlfenster am Server-PC öffnen (D21) |
 | `/api/v1/parts?q=…`, `/api/v1/parts/<Bezeichnung>` | Suche und Bauteil als JSON |
 | `POST /api/v1/parts`, `POST /api/v1/parts/<Bezeichnung>/files`, `POST /api/v1/categories` | Bauteil anlegen (auch mit `subcategory`), Dateien hochladen, Kategorie anlegen |
 | `PATCH /api/v1/parts/<Bezeichnung>` | Angaben ändern; `part` benennt um, `category` und `subcategory` verschieben; nur mitgeschickte Felder werden gesetzt |
 | `DELETE /api/v1/parts/<Bezeichnung>`, `DELETE /api/v1/parts/<Bezeichnung>/files/<pfad>` | Bauteil oder Datei in den Papierkorb |
+| `/api/v1/trash`, `POST /api/v1/trash/<ID>/restore` | Inhalt des Papierkorbs; Eintrag zurückholen (404 = unbekannt, 409 = geht nicht, mit Grund) |
 | `/api/v1/categories`, `/api/v1/index`, `/api/v1/health` | Kategorien mit Unterkategorien, Zustand des Index, Lebenszeichen |
 | `POST /api/v1/index/rebuild` | Ordner neu einlesen |
 | `/docs`, `/openapi.json` | API-Beschreibung, von FastAPI erzeugt |
@@ -324,6 +359,11 @@ lange es gedauert hat, und welche Hinweise es gab (z. B. eine unlesbare `part.ya
 ihn in die `config.yaml` ein; deren Kommentare bleiben erhalten. Mit Häkchen wird in einem
 leeren oder neuen Ordner ein Lager angelegt. Ein Ordner mit fremdem Inhalt wird nie verändert.
 
+**„Im Explorer öffnen“** auf der Seite „Papierkorb“ öffnet dessen Ordner am Server-PC.
+Windows lässt ein Programm im Hintergrund kein Fenster vor den Browser holen; das neue
+Explorer-Fenster liegt deshalb oft dahinter und ist über die Taskleiste zu erreichen. Die
+Meldung sagt das.
+
 **„Ordner auswählen …“ (D21)** öffnet das Ordner-Auswahlfenster des Betriebssystems, unter
 Windows das des Explorers. Ein Browser verrät einer Webseite keinen vollständigen Ordnerpfad;
 deshalb öffnet der Server das Fenster, der ja auf demselben PC läuft. Der gewählte Pfad steht
@@ -334,12 +374,12 @@ und der Pfad wird eingetippt. Den Knopf gibt es nur mit JavaScript und nur am Se
 
 Schutz (D13):
 
-- **Lager-Ordner ändern, das Ordner-Auswahlfenster und „Adresse merken“ gehen nur an dem PC,
-  auf dem der Server läuft** (Aufruf über `127.0.0.1` oder `localhost`). Andere Geräte sehen
+- **Lager-Ordner ändern, das Ordner-Auswahlfenster, „Im Explorer öffnen“ und „Adresse merken“
+  gehen nur an dem PC, auf dem der Server läuft** (Aufruf über `127.0.0.1` oder `localhost`). Andere Geräte sehen
   den Pfad nur.
 - **Ohne `write_token`** darf jedes Gerät im WLAN Bauteile anlegen, ändern, umbenennen und
-  löschen, Dateien hochladen und löschen und neu einlesen. Das ist für das private Netz so
-  gewollt; gelöscht wird dabei nur in den Papierkorb (D19).
+  löschen, Dateien hochladen und löschen, aus dem Papierkorb zurückholen und neu einlesen. Das
+  ist für das private Netz so gewollt; gelöscht wird dabei nur in den Papierkorb (D19).
 - **Mit `write_token`** verlangen alle schreibenden Aufrufe das Kopffeld `X-Lager-Token` (API)
   oder eine Anmeldung im Browser (D14): Unter `/anmelden` gibt man den Token einmal ein, der
   Browser merkt ihn sich 30 Tage als Cookie. Ohne Anmeldung blenden die Seiten die
@@ -357,7 +397,7 @@ Schutz (D13):
   JavaScript geht alles Wesentliche weiter über normale Formulare und Knöpfe.
 - Noch nicht enthalten: Kategorien und Unterkategorien im Web umbenennen oder löschen (das
   geht mit `lager category remove` oder im Explorer, danach neu einlesen), den Papierkorb im
-  Programm leeren oder daraus wiederherstellen, HTTPS.
+  Programm endgültig leeren (bewusst nur im Explorer), HTTPS.
 
 ### Mobile App = Web-Oberfläche (D8)
 
@@ -461,6 +501,7 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 | 2 | REST-API (FastAPI, OpenAPI) + Web-Oberfläche fürs Handy: Suche → Bauteilseite → PDF öffnen | ✅ Suche (auch beim Tippen), Bauteilseite, Dateien, Bauteil anlegen und bearbeiten, Dateien hochladen, Lager-Ordner ändern, Rückmeldung beim Einlesen, Anmelden bei Schreibschutz. Von Lukas am Handy geprüft (2026-11-13): Seiten und PDF öffnen funktionieren |
 | 3a | QR-Etiketten: erzeugen, auf A4 drucken, mit dem Handy lesen; Adresse als Name statt IP | ✅ Seite `/etiketten`, QR-Code auf der Bauteilseite, `lager qr url`, `lager qr make` (§6c). Von Lukas geprüft (2026-11-13): Das Handy liest den Code und öffnet das Bauteil |
 | – | Verwalten (Wünsche aus dem ersten größeren Test, 2026-11-14) | ✅ Bezeichnungen mit Leerzeichen und Kleinbuchstaben, Unterkategorien, Umbenennen, Verschieben, Bauteile und Dateien löschen (Papierkorb), Hochladen gleich nach der Auswahl mit Fortschritt, Ordner-Auswahlfenster für den Lager-Ordner (§6b, §7) |
+| – | Rückmeldung zu 0.6.0 (2026-11-26) | ✅ Bauteilseite mit drei eigenen Knöpfen (Bearbeiten, Umbenennen, Löschen) und eigenen Seiten, Papierkorb als Seite mit Wiederherstellen, `config.yaml` nur noch lokal mit Vorlage `config.example.yaml` (0.7.0) |
 | 3b | HTTPS mit Kamera-Scanner in der Seite und Startbildschirm (PWA) | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
 | 5 | Mengen ein- und ausbuchen mit Verlauf (`movements`) | offen |
@@ -534,3 +575,6 @@ Symbole erscheinen direkt in KiCad.
 | D19 | 2026-11-14 | Löschen im Programm verschiebt in `<lager_root>/_papierkorb/`; endgültig gelöscht wird nur im Explorer (s. §6b) |
 | D20 | 2026-11-14 | Umbenennen und Verschieben über das Programm; die alte Bezeichnung bleibt als Alias, und ihre Adresse leitet weiter, damit gedruckte QR-Etiketten gültig bleiben (s. §6b) |
 | D21 | 2026-11-14 | Den Lager-Ordner wählt man im Auswahlfenster des Betriebssystems, das der Server am eigenen PC öffnet (eigener Prozess, tkinter); der Pfad wird erst mit „Übernehmen“ wirksam (s. §7) |
+| D22 | 2026-11-26 | Der Papierkorb des Lagers hat eine eigene Seite (und `lager trash`): ansehen, wiederherstellen, im Explorer öffnen. Endgültig gelöscht wird weiter nur im Explorer. Anlass: Lukas hat den Ordner `_papierkorb` nicht gefunden (s. §6b) |
+| D23 | 2026-11-26 | `config.yaml` steht nicht mehr in Git; eingecheckt ist die Vorlage `config.example.yaml`, aus der das Programm eine fehlende `config.yaml` beim ersten Speichern anlegt. Lukas: Die bisherige Konfiguration war nur zum Testen und enthält nichts Vertrauliches (s. §4) |
+| D24 | 2026-11-26 | Bearbeiten, Umbenennen und Löschen sind drei eigene Knöpfe auf der Bauteilseite mit je eigener Seite; Löschen fragt auf einer eigenen Seite nach (statt Häkchen). Wunsch von Lukas (s. §6b) |

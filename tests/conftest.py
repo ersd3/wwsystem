@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from lager import categories, labels, parts
+from lager import categories, dialogs, labels, parts
 from lager.server.app import create_app
 
 # Absender der Anfragen: der PC, auf dem der Server läuft, und ein anderes Gerät im WLAN.
@@ -39,6 +39,20 @@ def netz(monkeypatch):
     monkeypatch.setattr(labels, "local_hostname", lambda: "TestPC")
     monkeypatch.setattr(labels, "lan_ipv4", lambda: TEST_IP)
     monkeypatch.setattr(labels, "resolve_ipv4", lambda host: list(TEST_NAMES.get(host.lower(), [])))
+
+
+@pytest.fixture(autouse=True)
+def keine_fenster(monkeypatch):
+    """Kein Test darf ein echtes Fenster öffnen (Auswahlfenster, Explorer).
+
+    Wer eines braucht, ersetzt es im Test selbst durch eine Attrappe.
+    """
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("Dieser Test würde ein echtes Fenster öffnen.")
+
+    monkeypatch.setattr(dialogs, "_run_dialog", blocked)
+    monkeypatch.setattr(dialogs, "reveal", blocked)
 
 
 @pytest.fixture()

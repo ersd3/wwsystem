@@ -27,7 +27,7 @@
     {% if meldung %}<p class="notice" role="alert">{{ meldung }}</p>{% endif %}
     {% if erfolg %}
     <div class="notice ok" role="status">
-      <p>{{ erfolg }}</p>
+      <p>{{ erfolg }}{% if erfolg_link %} <a href="{{ erfolg_link.href }}">{{ erfolg_link.text }}</a>{% endif %}</p>
       {% if warnungen %}
       <p>{{ warnungen | length }} {{ "Hinweis" if warnungen | length == 1 else "Hinweise" }} beim Einlesen:</p>
       <ul>
@@ -45,6 +45,10 @@
       eingelesen {{ index.aufgebaut_am | replace('T', ' ') | replace('Z', ' UTC') }}
     </p>
     <p>Lager-Ordner: <span class="path">{{ lager_root }}</span></p>
+    <p>
+      <a href="/papierkorb">Papierkorb</a>{% if papierkorb_anzahl %} ·
+      {{ papierkorb_anzahl }} {{ "Eintrag" if papierkorb_anzahl == 1 else "Einträge" }}{% endif %}
+    </p>
     {% if not schreibschutz %}
     <form action="/index/rebuild" method="post">
       <button type="submit" class="quiet">Ordner neu einlesen</button>

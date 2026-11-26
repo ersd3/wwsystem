@@ -19,6 +19,11 @@ Danach steht `lager` im venv:
 
 (Linux: `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -e .`)
 
+Eine `config.yaml` braucht es dafür nicht. Ohne sie nimmt das Programm Standardwerte und das
+Beispiel-Lager `lager/` im Projekt. Sobald etwas gespeichert wird (z. B. ein anderer
+Lager-Ordner), legt es die `config.yaml` als Kopie der Vorlage `config.example.yaml` an. Die
+`config.yaml` gehört nur zu diesem Rechner und wird nicht mit hochgeladen.
+
 ## Schnellstart
 
 ```bat
@@ -77,8 +82,24 @@ lager part remove BC547
 - Nach `rename` steht die alte Bezeichnung in den Aliasen. Das Bauteil wird weiter unter ihr
   gefunden, und ein schon gedrucktes QR-Etikett führt weiter zu ihm.
 - `detach` und `remove` löschen nichts endgültig: Datei oder Bauteil-Ordner wandern in den
-  Ordner `_papierkorb` im Lager. Von dort lassen sie sich im Explorer zurückholen oder
-  endgültig löschen.
+  Papierkorb des Lagers (siehe unten).
+
+## Papierkorb
+
+Was im Programm gelöscht wird, landet im Papierkorb des Lagers. Das ist ein Ordner im
+Lager-Ordner, `_papierkorb`, nicht der Papierkorb von Windows. Im Web steht er unten auf jeder
+Seite unter „Papierkorb“, mit vollem Pfad, und jeder Eintrag lässt sich dort mit
+„Wiederherstellen“ an seinen alten Platz zurückholen.
+
+```bat
+lager trash list
+lager trash restore 20261126T205502Z
+lager trash open
+```
+
+`list` zeigt den Inhalt (die ID steht vorn), `restore` holt einen Eintrag zurück, `open`
+öffnet den Ordner im Explorer. Endgültig gelöscht wird nur im Explorer: den Eintrag im Ordner
+`_papierkorb` löschen. Er landet dann im Papierkorb von Windows.
 
 ## Web-Oberfläche (auch fürs Handy)
 
@@ -91,13 +112,14 @@ Dann im Browser `http://127.0.0.1:8080` öffnen. Die API-Beschreibung steht unte
 - **Suchen:** Suchfeld oben; der Knopf „PDF“ in der Trefferliste öffnet das Datenblatt direkt.
 - **Neues Bauteil:** Knopf „+“ oben. Im Formular lassen sich auch eine neue Kategorie oder
   Unterkategorie anlegen und gleich Dateien mitgeben.
-- **Ändern, umbenennen, verschieben, löschen:** auf der Seite des Bauteils, „Bearbeiten,
-  umbenennen oder löschen“. Dort stehen Bezeichnung, Kategorie, Unterkategorie und die
-  übrigen Angaben, ganz unten „Bauteil löschen“. In der CLI:
-  `lager part edit IRLZ44N --location B-07 --quantity 12`.
+- **Bearbeiten, Umbenennen, Löschen:** drei Knöpfe oben auf der Seite des Bauteils.
+  „Bearbeiten“ ändert die Angaben und verschiebt in eine andere Kategorie oder
+  Unterkategorie, „Umbenennen“ ändert die Bezeichnung, „Löschen“ fragt vorher nach. In der
+  CLI: `lager part edit IRLZ44N --location B-07 --quantity 12`.
 - **Dateien hinzufügen:** auf der Seite des Bauteils, ganz unten. Eine oder mehrere Dateien
   auswählen; das Hochladen startet von selbst und zeigt einen Fortschrittsbalken.
 - **Datei löschen:** Knopf „✕“ neben der Datei. Sie wandert in den Papierkorb des Lagers.
+- **Papierkorb:** Link unten auf jeder Seite. Dort lässt sich Gelöschtes wiederherstellen.
 - **QR-Etiketten:** siehe unten.
 - **Schreibschutz:** Ist in der `config.yaml` ein `write_token` gesetzt, muss man sich im
   Browser einmal unter „Anmelden“ (Fußbereich) mit diesem Token anmelden, um zu ändern.

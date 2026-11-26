@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ teil.part }} umbenennen – Lager{% endblock %}
+{% block main %}
+  {% import "_icons.html" as icons %}
+  <article class="detail">
+    <h1>{{ teil.part }} umbenennen</h1>
+    {% if schreibschutz %}
+    <p class="empty">Der Schreibschutz ist aktiv. <a href="/anmelden">Anmelden</a>, um Bauteile umzubenennen.</p>
+    {% else %}
+    <form action="/p/{{ teil.part | urlencode }}/umbenennen" method="post" class="stack">
+      <label for="bezeichnung">Neue Bezeichnung</label>
+      <input id="bezeichnung" type="text" name="bezeichnung" value="{{ neu }}" required autofocus
+             autocomplete="off" autocapitalize="off" spellcheck="false">
+      <p class="hint">
+        Die Bezeichnung ist zugleich der Name des Ordners. Erlaubt sind Groß- und Kleinbuchstaben,
+        Ziffern, Leerzeichen und Sonderzeichen außer &lt; &gt; : " / \ | ? *
+      </p>
+      <p class="hint">
+        Die alte Bezeichnung „{{ teil.part }}“ bleibt als Alias erhalten. Die Suche und schon
+        gedruckte QR-Etiketten führen deshalb weiter zu diesem Bauteil.
+      </p>
+      <div class="buttons">
+        <button type="submit" class="with-icon">{{ icons.rename() }}<span>Umbenennen</span></button>
+        <a class="quiet-link" href="/p/{{ teil.part | urlencode }}">Abbrechen</a>
+      </div>
+    </form>
+    {% endif %}
+  </article>
+{% endblock %}

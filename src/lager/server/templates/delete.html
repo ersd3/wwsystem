@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ teil.part }} löschen – Lager{% endblock %}
+{% block main %}
+  {% import "_icons.html" as icons %}
+  <article class="detail">
+    <h1>{{ teil.part }} löschen?</h1>
+    {% if schreibschutz %}
+    <p class="empty">Der Schreibschutz ist aktiv. <a href="/anmelden">Anmelden</a>, um Bauteile zu löschen.</p>
+    {% else %}
+    {% set n = teil.files | length %}
+    <div class="confirm">
+      <p>
+        Der Ordner des Bauteils kommt{% if n %} mit {{ n }} {{ "Datei" if n == 1 else "Dateien" }}{% endif %}
+        in den Papierkorb des Lagers. Von dort lässt er sich jederzeit wiederherstellen.
+      </p>
+      <p class="hint">
+        Der Papierkorb des Lagers ist ein Ordner im Lager, nicht der Papierkorb von Windows.
+        Er steht unten auf jeder Seite unter „Papierkorb“ und liegt hier:
+      </p>
+      <p class="path">{{ papierkorb_ordner }}</p>
+    </div>
+    <form action="/p/{{ teil.part | urlencode }}/loeschen" method="post">
+      <input type="hidden" name="sicher" value="1">
+      <div class="buttons">
+        <button type="submit" class="danger with-icon">{{ icons.trash() }}<span>Ja, löschen</span></button>
+        <a class="quiet-link" href="/p/{{ teil.part | urlencode }}">Abbrechen</a>
+      </div>
+    </form>
+    {% endif %}
+  </article>
+{% endblock %}

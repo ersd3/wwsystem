@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Papierkorb – Lager{% endblock %}
+{% block main %}
+  {% import "_icons.html" as icons %}
+  <article class="detail">
+    <h1>Papierkorb</h1>
+    <p class="lead-small">
+      Hier liegt, was im Lager gelöscht wurde. „Wiederherstellen“ bringt es an seinen alten
+      Platz zurück.
+    </p>
+    <div class="confirm">
+      <p class="hint">Ordner des Papierkorbs (im Lager, nicht der Papierkorb von Windows):</p>
+      <p class="path">{{ ordner }}</p>
+      {% if lokal and ordner_da %}
+      <form action="/papierkorb/oeffnen" method="post">
+        <button type="submit" class="quiet with-icon">{{ icons.folder() }}<span>Im Explorer öffnen</span></button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if eintraege %}
+    <ul class="trash">
+      {% for e in eintraege %}
+      <li class="trash-item">
+        <div class="trash-main">
+          <span class="part">{{ e.name }}</span>
+          <span class="meta">
+            {% if e.kind == "part" %}Bauteil{% else %}Datei von {{ e.part }}{% endif %}
+            · gelöscht am {{ e.deleted_at | ortszeit }}
+          </span>
+          <span class="meta">Alter Platz: <span class="path">{{ e.path }}</span></span>
+          {% if e.problem %}<span class="trash-problem">{{ e.problem }}</span>{% endif %}
+        </div>
+        {% if not schreibschutz and not e.problem %}
+        <form action="/papierkorb/wiederherstellen" method="post">
+          <input type="hidden" name="eintrag" value="{{ e.id }}">
+          <button type="submit" class="quiet with-icon">{{ icons.restore() }}<span>Wiederherstellen</span></button>
+        </form>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="empty">Der Papierkorb ist leer.</p>
+    {% endif %}
+
+    <p class="hint">
+      Endgültig löschen geht nur im Explorer: den Eintrag im Ordner oben löschen. Er landet
+      dann im Papierkorb von Windows.
+    </p>
+  </article>
+{% endblock %}

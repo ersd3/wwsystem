@@ -7,14 +7,6 @@
     <p class="empty">Der Schreibschutz ist aktiv. <a href="/anmelden">Anmelden</a>, um Bauteile zu ändern.</p>
     {% else %}
     <form action="/p/{{ teil.part | urlencode }}/bearbeiten" method="post" class="stack">
-      <label for="bezeichnung">Bezeichnung</label>
-      <input id="bezeichnung" type="text" name="bezeichnung" value="{{ form.bezeichnung }}" required
-             autocomplete="off" autocapitalize="off" spellcheck="false">
-      <p class="hint">
-        Ist zugleich der Ordnername. Nach einem Umbenennen bleibt die alte Bezeichnung als Alias
-        erhalten; schon gedruckte QR-Etiketten führen deshalb weiter zum Bauteil.
-      </p>
-
       <label for="kategorie">Kategorie</label>
       <select id="kategorie" name="kategorie">
         {% for k in kategorien %}
@@ -54,22 +46,6 @@
         <a class="quiet-link" href="/p/{{ teil.part | urlencode }}">Abbrechen</a>
       </div>
     </form>
-
-    <section>
-      <h2>Bauteil löschen</h2>
-      <form action="/p/{{ teil.part | urlencode }}/loeschen" method="post" class="stack">
-        <p class="hint">
-          Der Ordner des Bauteils wird mit allen Dateien in den Papierkorb des Lagers verschoben
-          (Ordner {{ papierkorb }} im Lager-Ordner). Von dort lässt er sich im Explorer zurückholen
-          oder endgültig löschen.
-        </p>
-        <label class="check">
-          <input type="checkbox" name="sicher" value="1" required>
-          Ja, {{ teil.part }} löschen
-        </label>
-        <button type="submit" class="danger">Bauteil löschen</button>
-      </form>
-    </section>
     {% endif %}
   </article>
 {% endblock %}

@@ -31,7 +31,7 @@ from .. import trash as trashmod
 from ..config import CONFIG_PATH, load_config, set_lager_root, set_public_url
 from .schemas import (
     Category, FileDeleteResult, Health, IndexStatus, NewCategory, NewPart, Part, PartChanges,
-    PartDeleteResult, RebuildResult, SearchResult, UploadResult,
+    PartDeleteResult, RebuildResult, SearchResult, TrashList, TrashRestoreResult, UploadResult,
 )
 
 HERE = Path(__file__).resolve().parent
@@ -54,6 +54,8 @@ TOKEN_COOKIE_MAX_AGE = 30 * 24 * 3600
 # Dateifeld eines HTML-Formulars. Bleibt es leer, schickt der Browser einen
 # leeren Text statt einer Datei mit; deshalb ist hier auch str erlaubt.
 FormFiles = List[Union[UploadFile, str]]
+# Link unter der Meldung, nachdem etwas in den Papierkorb gewandert ist.
+TRASH_LINK = {"href": "/papierkorb", "text": "Zum Papierkorb"}
 
 
 def _filesize(size: int) -> str:
@@ -76,6 +78,7 @@ def _mm(value: float) -> str:
 templates.env.filters["filesize"] = _filesize
 templates.env.filters["mm"] = _mm
 templates.env.filters["mm_de"] = labelmod.format_mm
+templates.env.filters["ortszeit"] = trashmod.local_time
 templates.env.globals["kind_label"] = lambda kind: KIND_LABELS.get(kind, kind)
 
 
@@ -248,6 +251,16 @@ def _part_dir(request: Request, part: str) -> Optional[Path]:
     if found is None:
         return None
     return request.app.state.root.joinpath(*found["path"].split("/"))
+
+
+def _owning_part_dir(root: Path, path: Path) -> Optional[Path]:
+    """Der Bauteil-Ordner, in dem `path` liegt (oder `path` selbst, wenn es einer ist)."""
+    for folder in (path, *path.parents):
+        if folder == root:
+            return None
+        if (folder / "part.yaml").is_file():
+            return folder
+    return None
 
 
 def switch_root(app: FastAPI, raw_path: str, create: bool = False) -> Path:
@@ -425,6 +438,41 @@ def api_delete_file(request: Request, part: str, rel_path: str) -> dict:
         }
 
 
+@api.get("/trash", response_model=TrashList, summary="Inhalt des Papierkorbs, das Neueste zuerst")
+def api_trash(request: Request) -> dict:
+    root = request.app.state.root
+    found = [entry.as_dict(root) for entry in trashmod.entries(root)]
+    return {"papierkorb": str(trashmod.trash_dir(root)), "anzahl": len(found), "eintraege": found}
+
+
+@api.post(
+    "/trash/{entry_id}/restore",
+    response_model=TrashRestoreResult,
+    dependencies=[Depends(require_write)],
+    summary="Eintrag aus dem Papierkorb an seinen alten Platz zurückholen",
+)
+def api_trash_restore(request: Request, entry_id: str) -> dict:
+    """`entry_id` ist die `id` aus `GET /api/v1/trash`, z. B. `20261126T205502Z`."""
+    root = request.app.state.root
+    try:
+        described = trashmod.find_entry(root, entry_id).as_dict(root)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    try:
+        target = trashmod.restore(root, entry_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    _rebuild(request)
+    owner = _owning_part_dir(root, target)
+    with open_index(request) as conn:
+        part = searchmod.get_part(conn, owner.name) if owner is not None else None
+    return {
+        "wiederhergestellt": target.relative_to(root).as_posix(),
+        "eintrag": described,
+        "teil": part,
+    }
+
+
 @api.get("/categories", response_model=List[Category], summary="Kategorien mit Teil-Anzahl")
 def api_categories(request: Request) -> list:
     with open_index(request) as conn:
@@ -508,11 +556,13 @@ def _page_context(request: Request, conn: sqlite3.Connection) -> dict:
         "lokal": is_local(request),
         "lager_root": str(request.app.state.root),
         "papierkorb": trashmod.TRASH_DIR,
+        "papierkorb_anzahl": len(trashmod.entries(request.app.state.root)),
         "version": __version__,
         "q": "",
         "kategorie": "",
         "meldung": "",
         "erfolg": "",
+        "erfolg_link": None,
         "warnungen": [],
     }
 
@@ -533,9 +583,10 @@ def _search_page(
     erfolg, warnungen = _rebuild_notice(request, hinweis)
     if hinweis == "geloescht" and gone:
         erfolg = (
-            f"{teil} ist gelöscht. Der Ordner liegt im Papierkorb des Lagers "
-            f"(Ordner {trashmod.TRASH_DIR})."
+            f"{teil} ist gelöscht und liegt jetzt im Papierkorb des Lagers. "
+            "Von dort lässt es sich wiederherstellen."
         )
+        context["erfolg_link"] = TRASH_LINK
     context.update(
         {
             "q": q, "kategorie": kategorie, "treffer": hits, "meldung": meldung,
@@ -545,21 +596,30 @@ def _search_page(
     return templates.TemplateResponse(request, "index.html", context, status_code=status)
 
 
-def _part_notice(found: dict, hochgeladen: Sequence[str], geloescht: str, frueher: str) -> str:
-    """Erfolgsmeldung der Bauteilseite. Gemeldet wird nur, was am Bauteil auch stimmt."""
+def _part_notice(
+    found: dict, hochgeladen: Sequence[str], geloescht: str, frueher: str, wiederhergestellt: str
+) -> Tuple[str, bool]:
+    """Erfolgsmeldung der Bauteilseite und ob darunter der Link zum Papierkorb gehört.
+
+    Gemeldet wird nur, was am Bauteil auch stimmt.
+    """
     notes: List[str] = []
+    trash_link = False
     paths = {f["path"] for f in found["files"]}
     uploaded = [name for name in hochgeladen if name in paths]
     if uploaded:
         notes.append(f"{_count(len(uploaded), 'Datei', 'Dateien')} hochgeladen: {', '.join(uploaded)}.")
     if geloescht and geloescht not in paths:
-        notes.append(
-            f"{geloescht} ist gelöscht. Die Datei liegt im Papierkorb des Lagers "
-            f"(Ordner {trashmod.TRASH_DIR})."
-        )
+        notes.append(f"{geloescht} ist gelöscht und liegt jetzt im Papierkorb des Lagers.")
+        trash_link = True
+    if wiederhergestellt:
+        if wiederhergestellt.lower() == found["part"].lower():
+            notes.append(f"{found['part']} ist aus dem Papierkorb zurück.")
+        elif wiederhergestellt in paths:
+            notes.append(f"{wiederhergestellt} ist aus dem Papierkorb zurück.")
     if frueher and frueher.lower() in (alias.lower() for alias in found["aliases"]):
         notes.append(f"„{frueher}“ heißt jetzt „{found['part']}“.")
-    return " ".join(notes)
+    return " ".join(notes), trash_link
 
 
 def _part_page(
@@ -570,6 +630,7 @@ def _part_page(
     hochgeladen: Sequence[str] = (),
     geloescht: str = "",
     frueher: str = "",
+    wiederhergestellt: str = "",
 ):
     with open_index(request) as conn:
         context = _page_context(request, conn)
@@ -579,7 +640,9 @@ def _part_page(
         base, _source = label_base_url(request)
         if base:
             qr = labelmod.make_qr(labelmod.part_url(base, found["part"]))
-        context["erfolg"] = _part_notice(found, hochgeladen, geloescht, frueher)
+        notice, trash_link = _part_notice(found, hochgeladen, geloescht, frueher, wiederhergestellt)
+        context["erfolg"] = notice
+        context["erfolg_link"] = TRASH_LINK if trash_link else None
     context.update({"teil": found, "gesucht": part, "meldung": meldung, "qr": qr})
     if status is None:
         status = 200 if found else 404
@@ -626,6 +689,7 @@ def page_part(
     hochgeladen: List[str] = Query(default=[]),
     geloescht: str = "",
     frueher: str = "",
+    wiederhergestellt: str = "",
 ):
     with open_index(request) as conn:
         renamed = None
@@ -637,7 +701,8 @@ def page_part(
             f"/p/{quote(renamed['part'])}?" + urlencode({"frueher": part}), status_code=307
         )
     return _part_page(
-        request, part, hochgeladen=hochgeladen, geloescht=geloescht, frueher=frueher
+        request, part, hochgeladen=hochgeladen, geloescht=geloescht, frueher=frueher,
+        wiederhergestellt=wiederhergestellt,
     )
 
 
@@ -650,7 +715,7 @@ def _edit_page(request: Request, part: str, form: Optional[dict] = None, meldung
     if form is None:
         sub = found["subcategory"]
         form = {
-            "bezeichnung": found["part"], "kategorie": found["category"],
+            "kategorie": found["category"],
             "unterkategorie": f"{found['category']}/{sub}" if sub else "",
             "neue_unterkategorie": "",
             "name": found["name"], "hersteller": found["manufacturer"],
@@ -679,7 +744,6 @@ def page_edit(request: Request, part: str):
 def page_edit_submit(
     request: Request,
     part: str,
-    bezeichnung: str = Form(""),
     kategorie: str = Form(""),
     unterkategorie: str = Form(""),
     neue_unterkategorie: str = Form(""),
@@ -692,9 +756,12 @@ def page_edit_submit(
     aliase: str = Form(""),
     notizen: str = Form(""),
 ):
-    """Speichert die Angaben; neue Bezeichnung, Kategorie oder Unterkategorie verschieben den Ordner."""
+    """Speichert die Angaben; eine andere Kategorie oder Unterkategorie verschiebt den Ordner.
+
+    Umbenennen und Löschen haben eigene Seiten (`/umbenennen`, `/loeschen`).
+    """
     form = {
-        "bezeichnung": bezeichnung, "kategorie": kategorie, "unterkategorie": unterkategorie,
+        "kategorie": kategorie, "unterkategorie": unterkategorie,
         "neue_unterkategorie": neue_unterkategorie,
         "name": name, "hersteller": hersteller, "lagerfach": lagerfach, "menge": menge,
         "einheit": einheit, "tags": tags, "aliase": aliase, "notizen": notizen,
@@ -704,7 +771,7 @@ def page_edit_submit(
         return _part_page(request, part)
     root = request.app.state.root
     old_category, old_sub = partmod.location_of(root, part_dir)
-    # Leere Felder für Bezeichnung und Kategorie heißen: bleibt, wie es ist.
+    # Ein leeres Feld „Kategorie“ heißt: bleibt, wie es ist (z. B. bei anderen Clients).
     category = kategorie.strip() or None
     try:
         subcategory = None
@@ -725,15 +792,48 @@ def page_edit_submit(
         )
     except ValueError as e:
         return _edit_page(request, part, form, str(e), 400)
+    if category is not None or subcategory is not None:
+        try:
+            part_dir = partmod.move_part(root, part_dir.name, None, category, subcategory)
+        except ValueError as e:
+            _rebuild(request)
+            return _edit_page(
+                request, part, form, f"Die übrigen Angaben sind gespeichert. Aber: {e}", 400
+            )
+    _rebuild(request)
+    return RedirectResponse(f"/p/{quote(part_dir.name)}", status_code=303)
+
+
+def _rename_page(
+    request: Request, part: str, neu: Optional[str] = None, meldung: str = "", status: int = 200
+):
+    with open_index(request) as conn:
+        context = _page_context(request, conn)
+        found = searchmod.get_part(conn, part)
+    if found is None:
+        return _part_page(request, part)
+    context.update({"teil": found, "neu": found["part"] if neu is None else neu, "meldung": meldung})
+    return templates.TemplateResponse(request, "rename.html", context, status_code=status)
+
+
+@pages.get("/p/{part}/umbenennen", response_class=HTMLResponse)
+def page_rename(request: Request, part: str):
+    return _rename_page(request, part)
+
+
+@pages.post("/p/{part}/umbenennen", dependencies=[Depends(require_write)])
+def page_rename_submit(request: Request, part: str, bezeichnung: str = Form("")):
+    """Benennt ein Bauteil um (Ordner und part.yaml); die alte Bezeichnung wird Alias."""
+    part_dir = _part_dir(request, part)
+    if part_dir is None:
+        return _part_page(request, part)
+    new_id = partmod.normalize_part_id(bezeichnung)
+    if new_id == part_dir.name:
+        return RedirectResponse(f"/p/{quote(part_dir.name)}", status_code=303)  # nichts geändert
     try:
-        moved = partmod.move_part(
-            root, part_dir.name, bezeichnung.strip() or None, category, subcategory
-        )
+        moved = partmod.move_part(request.app.state.root, part_dir.name, new_id=new_id)
     except ValueError as e:
-        _rebuild(request)
-        return _edit_page(
-            request, part, form, f"Die übrigen Angaben sind gespeichert. Aber: {e}", 400
-        )
+        return _rename_page(request, part, bezeichnung, str(e), 400)
     _rebuild(request)
     target = f"/p/{quote(moved.name)}"
     if moved.name.lower() != part_dir.name.lower():
@@ -741,21 +841,43 @@ def page_edit_submit(
     return RedirectResponse(target, status_code=303)
 
 
+def _delete_page(request: Request, part: str, meldung: str = "", status: int = 200):
+    with open_index(request) as conn:
+        context = _page_context(request, conn)
+        found = searchmod.get_part(conn, part)
+    if found is None:
+        return _part_page(request, part)
+    context.update(
+        {
+            "teil": found,
+            "meldung": meldung,
+            "papierkorb_ordner": str(trashmod.trash_dir(request.app.state.root)),
+        }
+    )
+    return templates.TemplateResponse(request, "delete.html", context, status_code=status)
+
+
+@pages.get("/p/{part}/loeschen", response_class=HTMLResponse)
+def page_delete(request: Request, part: str):
+    """Rückfrage vor dem Löschen eines Bauteils."""
+    return _delete_page(request, part)
+
+
 @pages.post("/p/{part}/loeschen", dependencies=[Depends(require_write)])
 def page_delete_part(request: Request, part: str, sicher: str = Form("")):
     """Löscht ein Bauteil: Sein Ordner wandert in den Papierkorb des Lagers.
 
-    Das Häkchen „Ja, löschen“ im Formular schützt vor einem versehentlichen Tippen.
+    Das Feld `sicher` schickt nur der Knopf „Ja, löschen“ der Rückfrage-Seite mit.
     """
     part_dir = _part_dir(request, part)
     if part_dir is None:
         return _part_page(request, part)
     if not sicher:
-        return _edit_page(request, part, None, "Zum Löschen bitte das Häkchen setzen.", 400)
+        return _delete_page(request, part, "Zum Löschen bitte auf „Ja, löschen“ tippen.", 400)
     try:
         partmod.delete_part(request.app.state.root, part_dir.name)
     except ValueError as e:
-        return _edit_page(request, part, None, str(e), 400)
+        return _delete_page(request, part, str(e), 400)
     _rebuild(request)
     return RedirectResponse(
         "/?" + urlencode({"hinweis": "geloescht", "teil": part_dir.name}), status_code=303
@@ -935,6 +1057,71 @@ def page_pick_folder(request: Request) -> dict:
     except dialogmod.DialogUnavailable as e:
         raise HTTPException(503, str(e))
     return {"pfad": str(chosen) if chosen else ""}
+
+
+# ---------------------------------------------------------------- Papierkorb
+
+
+def _trash_page(request: Request, meldung: str = "", erfolg: str = "", status: int = 200):
+    root = request.app.state.root
+    with open_index(request) as conn:
+        context = _page_context(request, conn)
+    folder = trashmod.trash_dir(root)
+    context.update(
+        {
+            "eintraege": [entry.as_dict(root) for entry in trashmod.entries(root)],
+            "ordner": str(folder),
+            "ordner_da": folder.is_dir(),
+            "meldung": meldung,
+            "erfolg": erfolg,
+        }
+    )
+    return templates.TemplateResponse(request, "trash.html", context, status_code=status)
+
+
+@pages.get("/papierkorb", response_class=HTMLResponse)
+def page_trash(request: Request, hinweis: str = ""):
+    erfolg = ""
+    if hinweis == "explorer":
+        # Windows lässt ein Programm im Hintergrund (den Server) kein Fenster vor den
+        # Browser holen. Das neue Explorer-Fenster liegt deshalb oft dahinter.
+        erfolg = (
+            "Der Papierkorb ist im Explorer geöffnet. Liegt das Fenster nicht vorn, "
+            "ist es über die Taskleiste zu erreichen."
+        )
+    return _trash_page(request, erfolg=erfolg)
+
+
+@pages.post("/papierkorb/wiederherstellen", dependencies=[Depends(require_write)])
+def page_trash_restore(request: Request, eintrag: str = Form("")):
+    """Holt einen Eintrag zurück und zeigt danach das Bauteil, zu dem er gehört."""
+    root = request.app.state.root
+    try:
+        target = trashmod.restore(root, eintrag)
+    except ValueError as e:
+        return _trash_page(request, meldung=str(e), status=400)
+    _rebuild(request)
+    owner = _owning_part_dir(root, target)
+    if owner is None:
+        return RedirectResponse("/papierkorb", status_code=303)
+    what = owner.name if owner == target else target.relative_to(owner).as_posix()
+    return RedirectResponse(
+        f"/p/{quote(owner.name)}?" + urlencode({"wiederhergestellt": what}), status_code=303
+    )
+
+
+@pages.post("/papierkorb/oeffnen")
+def page_trash_open(request: Request):
+    """Öffnet den Ordner des Papierkorbs im Explorer, nur an dem PC, auf dem der Server läuft."""
+    if not is_local(request):
+        raise HTTPException(
+            403, "Der Explorer lässt sich nur an dem PC öffnen, auf dem der Server läuft."
+        )
+    try:
+        dialogmod.reveal(trashmod.trash_dir(request.app.state.root))
+    except dialogmod.DialogUnavailable as e:
+        return _trash_page(request, meldung=str(e), status=503)
+    return RedirectResponse("/papierkorb?hinweis=explorer", status_code=303)
 
 
 # --------------------------------------------------------------- QR-Etiketten

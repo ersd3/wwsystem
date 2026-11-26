@@ -36,7 +36,7 @@ def trashed(root: Path, rel: str) -> list[Path]:
 
 # Formularfelder der Seite "Bearbeiten" für IRF540N, so wie der Browser sie schickt.
 IRF540N_FORM = {
-    "bezeichnung": "IRF540N", "kategorie": "mosfets", "unterkategorie": "",
+    "kategorie": "mosfets", "unterkategorie": "",
     "neue_unterkategorie": "", "name": "MOSFET N-Kanal 100 V", "hersteller": "",
     "lagerfach": "", "menge": "0", "einheit": "Stk", "tags": "n-kanal", "aliase": "",
     "notizen": "",
@@ -367,20 +367,31 @@ def test_verschieben_in_kategorie_und_unterkategorie(lager_voll):
     assert parts.move_part(lager_voll, "IRF 540 N", subcategory="") == lager_voll / "mosfets" / "IRF 540 N"
 
 
-def test_seite_bearbeiten_zeigt_bezeichnung_und_ort(client):
+def test_bauteilseite_hat_drei_eigene_knoepfe(client):
+    page = client.get("/p/IRF9540N").text
+    assert '<nav class="actions"' in page
+    assert 'class="action" href="/p/IRF9540N/bearbeiten"' in page
+    assert 'class="action" href="/p/IRF9540N/umbenennen"' in page
+    assert 'class="action danger" href="/p/IRF9540N/loeschen"' in page
+    assert page.count('<svg class="icon"') >= 3
+
+
+def test_seite_bearbeiten_zeigt_ort_ohne_umbenennen_und_loeschen(client):
     page = client.get("/p/IRF9540N/bearbeiten").text
-    assert 'name="bezeichnung" value="IRF9540N"' in page
     assert '<option value="mosfets" selected>MOSFETs</option>' in page
     assert 'data-kurz="p-kanal" selected>' in page
-    assert "Bauteil löschen" in page
-    assert 'action="/p/IRF9540N/loeschen"' in page
+    # Umbenennen und Löschen haben jetzt eigene Seiten.
+    assert 'name="bezeichnung"' not in page
+    assert "/loeschen" not in page
 
 
-def test_bearbeiten_benennt_um_und_alte_adresse_fuehrt_weiter(client, lager_voll):
+def test_umbenennen_seite_und_alte_adresse_fuehrt_weiter(client, lager_voll):
+    page = client.get("/p/irf540n/umbenennen").text
+    assert "IRF540N umbenennen" in page
+    assert 'action="/p/IRF540N/umbenennen"' in page
+    assert 'name="bezeichnung" value="IRF540N"' in page
     response = client.post(
-        "/p/IRF540N/bearbeiten",
-        data={**IRF540N_FORM, "bezeichnung": "Irf 540 n", "aliase": "IRF540"},
-        follow_redirects=False,
+        "/p/IRF540N/umbenennen", data={"bezeichnung": "  Irf 540 n "}, follow_redirects=False
     )
     assert response.status_code == 303
     assert response.headers["location"] == "/p/Irf%20540%20n?frueher=IRF540N"
@@ -388,7 +399,7 @@ def test_bearbeiten_benennt_um_und_alte_adresse_fuehrt_weiter(client, lager_voll
     assert "<h1>Irf 540 n</h1>" in page
     assert "„IRF540N“ heißt jetzt „Irf 540 n“." in page
     part = client.get("/api/v1/parts/Irf%20540%20n").json()
-    assert part["aliases"] == ["IRF540", "IRF540N"]
+    assert part["aliases"] == ["IRF540N"]
     assert part["name"] == "MOSFET N-Kanal 100 V"
     assert part["tags"] == ["n-kanal"]
     assert (lager_voll / "mosfets" / "Irf 540 n" / "part.yaml").is_file()
@@ -429,14 +440,38 @@ def test_bearbeiten_verschiebt_in_unterkategorie(client, lager_voll):
     assert (lager_voll / "widerstaende" / "IRF540N" / "part.yaml").is_file()
 
 
-def test_bearbeiten_fehler_beim_umbenennen(client, lager_voll):
+def test_umbenennen_fehler_bleiben_im_formular(client, lager_voll):
+    response = client.post("/p/IRF540N/umbenennen", data={"bezeichnung": "irlz44n"})
+    assert response.status_code == 400
+    assert "Teil existiert bereits" in response.text
+    assert 'name="bezeichnung" value="irlz44n"' in response.text  # Eingabe bleibt stehen
+    bad = client.post("/p/IRF540N/umbenennen", data={"bezeichnung": "a/b"})
+    assert bad.status_code == 400
+    assert "darf diese Zeichen nicht enthalten" in bad.text
+    empty = client.post("/p/IRF540N/umbenennen", data={"bezeichnung": "  "})
+    assert empty.status_code == 400
+    assert "Die Bezeichnung fehlt." in empty.text
+    assert (lager_voll / "mosfets" / "IRF540N" / "part.yaml").is_file()
+    # Unverändert: zurück zur Bauteilseite, ohne Meldung.
+    same = client.post("/p/IRF540N/umbenennen", data={"bezeichnung": "IRF540N"}, follow_redirects=False)
+    assert same.headers["location"] == "/p/IRF540N"
+    assert client.get("/p/GIBTSNICHT/umbenennen").status_code == 404
+    assert client.post("/p/GIBTSNICHT/umbenennen", data={"bezeichnung": "X"}).status_code == 404
+
+
+def test_umbenennen_nur_gross_klein_im_browser(client, lager_voll):
+    response = client.post("/p/IRF540N/umbenennen", data={"bezeichnung": "Irf540n"}, follow_redirects=False)
+    assert response.headers["location"] == "/p/Irf540n"  # kein Alias, also keine Meldung
+    assert doc_of(lager_voll / "mosfets" / "Irf540n")["aliases"] == []
+
+
+def test_bearbeiten_fehler_beim_verschieben(client, lager_voll):
     response = client.post(
         "/p/IRF540N/bearbeiten",
-        data={**IRF540N_FORM, "bezeichnung": "IRLZ44N", "lagerfach": "C-9"},
+        data={**IRF540N_FORM, "neue_unterkategorie": "IRLZ44N", "lagerfach": "C-9"},
     )
     assert response.status_code == 400
-    assert "Die übrigen Angaben sind gespeichert. Aber: Teil existiert bereits" in response.text
-    assert 'name="bezeichnung" value="IRLZ44N"' in response.text  # Eingabe bleibt stehen
+    assert "Die übrigen Angaben sind gespeichert. Aber: IRLZ44N ist ein Bauteil" in response.text
     assert doc_of(lager_voll / "mosfets" / "IRF540N")["location"] == "C-9"
 
     response = client.post(
@@ -469,7 +504,7 @@ def test_tief_verschachteltes_bauteil_bleibt_beim_bearbeiten_an_seinem_ort(clien
     response = client.post(
         "/p/TIEF1/bearbeiten",
         data={
-            "bezeichnung": "TIEF1", "kategorie": "mosfets", "unterkategorie": "mosfets/a/b/c/d",
+            "kategorie": "mosfets", "unterkategorie": "mosfets/a/b/c/d",
             "name": "bleibt hier", "menge": "1",
         },
         follow_redirects=False,
@@ -546,16 +581,27 @@ def test_papierkorb_nimmt_nur_dinge_aus_dem_lager(lager_voll, tmp_path):
 
 
 def test_seite_bauteil_loeschen(client, lager_voll):
+    confirm = client.get("/p/irlz44n/loeschen")
+    assert confirm.status_code == 200
+    assert "IRLZ44N löschen?" in confirm.text
+    assert "mit 5 Dateien" in confirm.text
+    assert 'name="sicher" value="1"' in confirm.text
+    assert str(trash.trash_dir(lager_voll)) in confirm.text  # wohin es kommt, steht da
+    assert "nicht der Papierkorb von Windows" in confirm.text
+    assert (lager_voll / "mosfets" / "IRLZ44N").is_dir()  # Ansehen löscht nichts
+    assert client.get("/p/GIBTSNICHT/loeschen").status_code == 404
+
     without = client.post("/p/IRF540N/loeschen")
     assert without.status_code == 400
-    assert "Häkchen setzen" in without.text
+    assert "Zum Löschen bitte auf „Ja, löschen“ tippen." in without.text
     assert (lager_voll / "mosfets" / "IRF540N").is_dir()
 
     response = client.post("/p/IRF540N/loeschen", data={"sicher": "1"}, follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/?hinweis=geloescht&teil=IRF540N"
     page = client.get(response.headers["location"]).text
-    assert "IRF540N ist gelöscht. Der Ordner liegt im Papierkorb des Lagers (Ordner _papierkorb)." in page
+    assert "IRF540N ist gelöscht und liegt jetzt im Papierkorb des Lagers." in page
+    assert '<a href="/papierkorb">Zum Papierkorb</a>' in page
     assert 'href="/p/IRF540N"' not in page
     assert client.get("/p/IRF540N").status_code == 404
     assert len(trashed(lager_voll, "mosfets/IRF540N")) == 1
@@ -605,7 +651,8 @@ def test_seite_datei_loeschen(client, lager_voll):
     assert response.status_code == 303
     assert response.headers["location"] == "/p/IRLZ44N?geloescht=datasheet.pdf"
     page = client.get(response.headers["location"]).text
-    assert "datasheet.pdf ist gelöscht. Die Datei liegt im Papierkorb des Lagers" in page
+    assert "datasheet.pdf ist gelöscht und liegt jetzt im Papierkorb des Lagers." in page
+    assert '<a href="/papierkorb">Zum Papierkorb</a>' in page
     assert "Noch kein Datenblatt im Ordner." in page
     assert client.get("/files/mosfets/IRLZ44N/datasheet.pdf").status_code == 404
     assert len(trashed(lager_voll, "mosfets/IRLZ44N/datasheet.pdf")) == 1

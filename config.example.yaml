@@ -1,0 +1,32 @@
+# Konfiguration — Lagersystem (Vorlage)
+#
+# Das ist die Vorlage für config.yaml. Jeder Rechner hat seine eigene config.yaml; sie
+# steht nicht in Git. Fehlt sie, arbeitet das Programm mit Standardwerten (Lager-Ordner
+# über die Auto-Erkennung). Beim ersten Speichern, z. B. mit `lager root set` oder
+# „Lager-Ordner ändern“ im Web, legt das Programm config.yaml als Kopie dieser Vorlage an.
+# Von Hand geht es auch: diese Datei als config.yaml kopieren und anpassen.
+#
+# lager_root: Pfad zum Lager-Root (die Ordnerstruktur mit Kategorien und Bauteilen).
+#   leer     = Auto-Erkennung (Projektordner/lager, dann ~/lager)
+#   relativ  = relativ zu diesem Projektordner (gut zum Verschieben)
+#   absolut  = wird direkt verwendet
+# Ändern: Lager verschieben? -> `lager root set <neuer-pfad>`
+lager_root: "lager"
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+  # Adresse in den QR-Etiketten (muss vom Handy erreichbar sein). Besser ein Name als
+  # eine IP, z. B. "http://lager.fritz.box:8080". Setzen: Seite /etiketten oder `lager qr url`.
+  public_url: ""
+
+# Token für Schreiboperationen; leer = ohne Schreibschutz (für das private WLAN gedacht)
+write_token: ""
+
+
+# Dateiarten nach Dateiendung (optional). Ohne diesen Eintrag gelten die Standardwerte:
+# file_kinds:
+#   datasheet: [pdf]
+#   cad3d: [step, stp, wrl, iges, igs, stl]
+#   kicad: [kicad_mod, kicad_sym, kicad_pcb, kicad_sch]
+#   image: [png, jpg, jpeg, gif, webp, svg]

@@ -9,5 +9,8 @@ dist/
 # Abgeleiteter Such-Index (wird mit `lager index rebuild` neu aufgebaut)
 .lager/
 
+# Einstellungen dieses Rechners. Eingecheckt ist nur die Vorlage config.example.yaml.
+config.yaml
+
 # Start-Konfiguration für den Browser-Bereich der Claude-App (HANDOVER.md §7a)
 .claude/launch.json

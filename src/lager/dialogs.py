@@ -1,8 +1,8 @@
-"""Auswahlfenster des Betriebssystems, für den PC, auf dem das Programm läuft.
+"""Fenster des Betriebssystems, für den PC, auf dem das Programm läuft.
 
-Ein Browser darf einer Webseite keinen vollständigen Ordnerpfad verraten. Der Server
-läuft aber auf demselben PC und kann das Fenster selbst öffnen (unter Windows das
-Ordner-Auswahlfenster des Explorers).
+Ein Browser darf einer Webseite keinen vollständigen Ordnerpfad verraten und keinen
+Ordner im Explorer öffnen. Der Server läuft aber auf demselben PC und kann beides selbst:
+das Ordner-Auswahlfenster (`pick_folder`) und einen Ordner im Explorer (`reveal`).
 """
 from __future__ import annotations
 
@@ -59,3 +59,24 @@ def pick_folder(initial: Path | None = None, title: str = "Lager-Ordner auswähl
         )
     chosen = done.stdout.decode("utf-8", errors="replace").strip()
     return Path(chosen) if chosen else None
+
+
+def reveal(folder: Path) -> None:
+    """Öffnet einen Ordner im Dateimanager dieses PCs (unter Windows im Explorer).
+
+    Geht das nicht (kein Ordner, kein Bildschirm, kein Dateimanager), gibt es eine
+    DialogUnavailable mit dem Grund.
+    """
+    if not folder.is_dir():
+        raise DialogUnavailable(f"Den Ordner gibt es nicht: {folder}")
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(folder))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(folder)])
+        else:
+            subprocess.Popen(["xdg-open", str(folder)])
+    except OSError as e:
+        raise DialogUnavailable(
+            f"Der Ordner lässt sich auf diesem Rechner nicht öffnen ({e}). Er liegt hier: {folder}"
+        ) from e

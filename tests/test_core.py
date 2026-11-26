@@ -121,3 +121,40 @@ def test_config_roundtrip(tmp_path):
     # relative Auflösung relativ zur config.yaml
     resolved = config.resolve_lager_root(config.load_config(cp), cp)
     assert resolved == tmp_path / "lager"
+
+
+EXAMPLE = config.PROJECT_DIR / config.EXAMPLE_NAME
+
+
+def test_vorlage_passt_zu_den_standardwerten():
+    cfg = config.load_config(EXAMPLE)
+    assert cfg["lager_root"] == "lager"  # das Beispiel-Lager im Projekt
+    assert cfg["server"] == config.DEFAULTS["server"]
+    assert cfg["write_token"] == ""
+
+
+def test_config_yaml_steht_nicht_in_git():
+    ignored = (config.PROJECT_DIR / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "config.yaml" in ignored
+
+
+def test_fehlende_config_wird_aus_der_vorlage_angelegt(tmp_path):
+    (tmp_path / config.EXAMPLE_NAME).write_text(EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    cp = tmp_path / "config.yaml"
+    assert config.load_config(cp)["lager_root"] == ""  # ohne Datei: Standardwerte
+
+    config.set_lager_root(str(tmp_path / "mein lager"), cp)
+    text = cp.read_text(encoding="utf-8")
+    assert text.startswith("# Konfiguration")  # die Kommentare der Vorlage sind da
+    assert "file_kinds" in text
+    assert config.load_config(cp)["lager_root"] == "mein lager"
+
+    other = tmp_path / "zweiter" / "config.yaml"
+    other.parent.mkdir()
+    (other.parent / config.EXAMPLE_NAME).write_text(EXAMPLE.read_text(encoding="utf-8"), encoding="utf-8")
+    config.set_public_url("http://lager.fritz.box:8080", other)
+    assert "# Adresse in den QR-Etiketten" in other.read_text(encoding="utf-8")
+    assert config.load_config(other)["server"]["public_url"] == "http://lager.fritz.box:8080"
+    # Eine vorhandene config.yaml wird nie durch die Vorlage ersetzt.
+    config.ensure_config_file(cp)
+    assert config.load_config(cp)["lager_root"] == "mein lager"

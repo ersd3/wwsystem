@@ -18,6 +18,7 @@ import typer
 
 from . import __version__, categories as catmod
 from . import db as dbmod
+from . import dialogs as dialogmod
 from . import files as filesmod
 from . import indexer
 from . import labels as labelmod
@@ -49,6 +50,8 @@ app.add_typer(part_app, name="part")
 qr_app = typer.Typer(help="QR-Codes für Etiketten: Adresse festlegen, Bilder erzeugen.")
 app.add_typer(index_app, name="index")
 app.add_typer(qr_app, name="qr")
+trash_app = typer.Typer(help="Papierkorb des Lagers: Gelöschtes ansehen und zurückholen.")
+app.add_typer(trash_app, name="trash")
 
 
 def force_utf8_output() -> None:
@@ -713,6 +716,72 @@ def qr_make(
     except (ValueError, OSError) as e:
         _fail(str(e))
     _print({"adresse": base, "codes": codes}, as_json)
+
+
+# ---------------------------------------------------------------- trash
+
+
+@trash_app.command("list")
+def trash_list(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Zeigt, was im Papierkorb des Lagers liegt, das Neueste zuerst."""
+    root = _require_root()
+    found = trashmod.entries(root)
+    folder = trashmod.trash_dir(root)
+    if as_json:
+        _print(
+            {
+                "papierkorb": str(folder),
+                "anzahl": len(found),
+                "eintraege": [entry.as_dict(root) for entry in found],
+            },
+            True,
+        )
+        return
+    if not found:
+        typer.echo("Der Papierkorb ist leer.")
+        return
+    typer.echo(f"Papierkorb: {folder}")
+    for entry in found:
+        what = "Bauteil" if entry.kind == "part" else f"Datei von {entry.part}"
+        typer.echo(
+            f"{entry.id}  {entry.name}  ({what}, gelöscht am "
+            f"{trashmod.local_time(entry.deleted_at)})"
+        )
+        typer.echo(f"    alter Platz: {entry.path}")
+        problem = trashmod.restore_problem(root, entry)
+        if problem:
+            typer.echo(f"    lässt sich nicht zurückholen: {problem}")
+    typer.echo("Zurückholen: lager trash restore <ID>")
+
+
+@trash_app.command("restore")
+def trash_restore(
+    eintrag: str = typer.Argument(..., help="ID aus `lager trash list`, z. B. 20261126T205502Z"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Holt einen Eintrag aus dem Papierkorb an seinen alten Platz im Lager zurück."""
+    root = _require_root()
+    try:
+        described = trashmod.find_entry(root, eintrag).as_dict(root)
+        target = trashmod.restore(root, eintrag)
+    except ValueError as e:
+        _fail(str(e))
+    _refresh_index(root)
+    _print({"wiederhergestellt": str(target), "eintrag": described}, as_json)
+
+
+@trash_app.command("open")
+def trash_open(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Öffnet den Ordner des Papierkorbs im Explorer."""
+    root = _require_root()
+    folder = trashmod.trash_dir(root)
+    if not folder.is_dir():
+        _fail("Der Papierkorb ist leer; es gibt noch keinen Ordner dafür.")
+    try:
+        dialogmod.reveal(folder)
+    except dialogmod.DialogUnavailable as e:
+        _fail(str(e))
+    _print({"geoeffnet": str(folder)}, as_json)
 
 
 # ---------------------------------------------------------------- serve

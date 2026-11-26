@@ -12,6 +12,8 @@ import yaml
 # Projekt-Root: zwei Ebenen über src/lager/config.py
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_DIR / "config.yaml"
+# Vorlage neben der config.yaml. Sie steht in Git, die config.yaml jedes Rechners nicht.
+EXAMPLE_NAME = "config.example.yaml"
 
 # Die Zeile `lager_root: ...` auf oberster Ebene (ein Text in doppelten
 # Anführungszeichen ist in JSON und YAML gleich, auch mit Windows-Pfaden).
@@ -37,6 +39,19 @@ def load_config(path: Path = CONFIG_PATH) -> dict[str, Any]:
     server.update(data.get("server") or {})
     merged["server"] = server
     return merged
+
+
+def ensure_config_file(config_path: Path = CONFIG_PATH) -> None:
+    """Legt eine fehlende config.yaml als Kopie der Vorlage daneben an.
+
+    So behält eine neue config.yaml die erklärenden Kommentare der Vorlage. Gibt es
+    keine Vorlage, passiert nichts; dann schreibt `save_config` eine Datei ohne Kommentare.
+    """
+    if config_path.exists():
+        return
+    example = config_path.with_name(EXAMPLE_NAME)
+    if example.is_file():
+        config_path.write_text(example.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def save_config(cfg: dict[str, Any], path: Path = CONFIG_PATH) -> None:
@@ -73,6 +88,7 @@ def set_lager_root(value: str, config_path: Path = CONFIG_PATH) -> Path:
         stored = str(target)
 
     # Nur die eine Zeile ersetzen, damit Kommentare und übrige Einträge erhalten bleiben.
+    ensure_config_file(config_path)
     if config_path.exists():
         text = config_path.read_text(encoding="utf-8")
         line = f"lager_root: {json.dumps(stored, ensure_ascii=False)}"
@@ -92,6 +108,7 @@ def set_public_url(value: str, config_path: Path = CONFIG_PATH) -> None:
 
     Wie bei set_lager_root wird nur die eine Zeile ersetzt, damit Kommentare bleiben.
     """
+    ensure_config_file(config_path)
     if config_path.exists():
         text = config_path.read_text(encoding="utf-8")
         new_text, count = _PUBLIC_URL_LINE.subn(

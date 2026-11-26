@@ -4,13 +4,14 @@
 {% macro remove_button(f) %}
   {% if not schreibschutz %}
   <form action="/p/{{ teil.part | urlencode }}/dateien/loeschen" method="post"
-        data-confirm="{{ f.path }} löschen? Die Datei kommt in den Papierkorb des Lagers.">
+        data-confirm="{{ f.path }} löschen? Die Datei kommt in den Papierkorb des Lagers und lässt sich von dort wiederherstellen.">
     <input type="hidden" name="datei" value="{{ f.path }}">
     <button type="submit" class="quiet remove" title="{{ f.path }} löschen" aria-label="{{ f.path }} löschen">✕</button>
   </form>
   {% endif %}
 {% endmacro %}
 {% block main %}
+  {% import "_icons.html" as icons %}
   {% if not teil %}
   <p class="empty">Kein Bauteil mit der Bezeichnung „{{ gesucht }}“ gefunden.</p>
   <p><a href="/?q={{ gesucht | urlencode }}">Nach „{{ gesucht }}“ suchen</a></p>
@@ -19,7 +20,11 @@
     <h1>{{ teil.part }}</h1>
     {% if teil.name %}<p class="lead">{{ teil.name }}</p>{% endif %}
     {% if not schreibschutz %}
-    <p><a class="quiet-link" href="/p/{{ teil.part | urlencode }}/bearbeiten">Bearbeiten, umbenennen oder löschen</a></p>
+    <nav class="actions" aria-label="Bauteil ändern">
+      <a class="action" href="/p/{{ teil.part | urlencode }}/bearbeiten">{{ icons.edit() }}<span>Bearbeiten</span></a>
+      <a class="action" href="/p/{{ teil.part | urlencode }}/umbenennen">{{ icons.rename() }}<span>Umbenennen</span></a>
+      <a class="action danger" href="/p/{{ teil.part | urlencode }}/loeschen">{{ icons.trash() }}<span>Löschen</span></a>
+    </nav>
     {% endif %}
 
     {% set sheets = teil.files | selectattr("kind", "equalto", "datasheet") | list %}

@@ -1,19 +1,20 @@
 # HANDOVER — Bauteile-Lagersystem „Lager“
 
-**Stand:** 2026-11-16, Version 0.6.0
-**Übergabe von:** Claude Fable 5.2 (Claude Code) **an:** Claude Opus 5.5 (Claude Code)
+**Stand:** 2026-11-26, Version 0.7.0
+**Zuletzt bearbeitet von:** Claude Opus 5.5 (Claude Code), vorher Claude Fable 5.2
 **Vorgeschichte:** begonnen von einem lokalen LM-Studio-Agenten am 2026-11-11; die ganze Historie steht in Git.
 
 Dieses Dokument beschreibt den aktuellen Zustand. Regeln und Befehle in Kurzform stehen in
-[CLAUDE.md](CLAUDE.md), Konzept und Entscheidungen (D1–D21) in [KONZEPT.md](KONZEPT.md).
+[CLAUDE.md](CLAUDE.md), Konzept und Entscheidungen (D1–D24) in [KONZEPT.md](KONZEPT.md).
 
 ---
 
-## 0. Einstieg für Opus 5.5
+## 0. Einstieg für den nächsten Agenten
 
-**Der Stand ist abgeschlossen:** Alles bis Version 0.6.0 ist committet und auf `main` gepusht.
-Es gibt keine angefangene Arbeit. Lukas probiert 0.6.0 an seinem eigenen Lager aus; seine
-Rückmeldung ist der wahrscheinlichste nächste Auftrag.
+**Der Stand ist abgeschlossen:** Alles bis Version 0.7.0 ist committet und auf `main` gepusht.
+Es gibt keine angefangene Arbeit. 0.7.0 setzt Lukas' Rückmeldung zu 0.6.0 um (eigene Knöpfe,
+Papierkorb-Seite, `config.yaml` lokal); seine Rückmeldung dazu ist der wahrscheinlichste
+nächste Auftrag.
 
 **In dieser Reihenfolge lesen:** `CLAUDE.md` (Regeln, Befehle, Stolpersteine), dieses Dokument,
 dann von `KONZEPT.md` nur die Abschnitte, die zur Aufgabe gehören (§3 Ordner, §5 Kategorien,
@@ -26,14 +27,16 @@ git status --short
 .venv\Scripts\python.exe -m pytest tests -q
 ```
 
-- `pytest` muss 316 bestandene Tests melden. Wenn nicht, zuerst das klären.
-- `git status` zeigt drei Einträge, die **absichtlich nicht eingecheckt** sind und so bleiben,
-  bis Lukas entscheidet (§10): `config.yaml` (geändert), `lager/categories.yaml` (geändert),
-  `lager/microcontroller/` (neu). Nicht committen, nicht zurücksetzen, nicht löschen.
+- `pytest` muss 342 bestandene Tests melden. Wenn nicht, zuerst das klären.
+- `git status` zeigt zwei Einträge, die **absichtlich nicht eingecheckt** sind und so bleiben,
+  bis Lukas entscheidet (§10): `lager/categories.yaml` (geändert) und `lager/microcontroller/`
+  (neu). Nicht committen, nicht zurücksetzen, nicht löschen. Die `config.yaml` taucht nicht
+  mehr auf: Sie steht seit 0.7.0 in `.gitignore` (D23).
 
 **Drei Dinge, die hier leicht schiefgehen:**
 
-1. **Die `config.yaml` im Projekt zeigt auf das echte Lager von Lukas.** Jeder schreibende
+1. **Die `config.yaml` im Projekt zeigt auf das Lager von Lukas** (laut Lukas derzeit ein
+   Test-Lager, trotzdem seine Daten). Jeder schreibende
    `lager`-Befehl im Projektordner (`part new`, `part remove`, `part rename`, `category add` …)
    und jeder `lager serve` ändert also echte Daten. Zum Ausprobieren deshalb nur lesende
    Befehle nehmen (`status`, `part search`, `part show`, `index status`), sonst die Tests oder
@@ -75,7 +78,8 @@ Lukas verwaltet privat eine große Sammlung elektronischer Bauteile. Das System 
 | 1 | Suche (auch in Dateinamen), Dateien aufnehmen, Datenblatt öffnen | fertig |
 | 2 | Server: Suche (auch beim Tippen), Bauteilseite, Dateien, anlegen, bearbeiten, hochladen, Lager-Ordner ändern, Anmelden bei Schreibschutz | fertig; von Lukas am Handy geprüft |
 | 3a | QR-Etiketten: Seite `/etiketten` (Druck auf A4), QR-Code auf der Bauteilseite, Adresse als Name, `lager qr url`, `lager qr make` | fertig; von Lukas geprüft: Das Handy liest den Code |
-| – | Verwalten (0.6.0): freie Bezeichnungen, Unterkategorien, umbenennen, verschieben, löschen in den Papierkorb, Hochladen mit Fortschritt, Ordner-Auswahlfenster | fertig; von Lukas noch nicht ausprobiert |
+| – | Verwalten (0.6.0): freie Bezeichnungen, Unterkategorien, umbenennen, verschieben, löschen in den Papierkorb, Hochladen mit Fortschritt, Ordner-Auswahlfenster | fertig; von Lukas am PC ausprobiert: Umbenennen und Löschen gehen, den Papierkorb hat er nicht gefunden |
+| – | Rückmeldung zu 0.6.0 (0.7.0): drei eigene Knöpfe mit neuem Design, eigene Seiten für Umbenennen und Löschen, Papierkorb-Seite mit Wiederherstellen, `config.yaml` lokal | fertig; von Lukas noch nicht ausprobiert |
 | 3b | HTTPS mit Kamera-Scanner in der Seite und Startbildschirm | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
 | 5 | Mengen ein- und ausbuchen mit Verlauf | offen |
@@ -84,7 +88,7 @@ Lukas verwaltet privat eine große Sammlung elektronischer Bauteile. Das System 
 Zwei Ideen ohne festen Platz stehen in `KONZEPT.md` §10: (A) Bauteile automatisch ergänzen
 lassen, (B) KiCad-Dateien als Bibliothek bereitstellen.
 
-### Was in 0.5.0 und 0.6.0 dazukam
+### Was in 0.5.0 bis 0.7.0 dazukam
 
 - **0.5.0, QR-Etiketten (Phase 3a):** `labels.py`, Seite `/etiketten`, QR-Code auf der
   Bauteilseite, `server.public_url` mit Vorschlag und Prüfung, CLI-Gruppe `lager qr`.
@@ -99,6 +103,18 @@ lassen, (B) KiCad-Dateien als Bibliothek bereitstellen.
   - „Ordner auswählen …“ beim Lager-Ordner öffnet das Auswahlfenster des Explorers (D21).
   - Etiketten: lange Bezeichnungen brechen auf bis zu drei Zeilen um; passt eine trotzdem
     nicht, weist die Seite darauf hin.
+- **0.7.0, Rückmeldung von Lukas zu 0.6.0 (2026-11-26):**
+  - Bauteilseite: drei eigene Knöpfe „Bearbeiten“, „Umbenennen“, „Löschen“ mit Symbolen
+    (D24). Umbenennen und Löschen haben eigene Seiten; Löschen fragt auf einer eigenen Seite
+    nach und nennt den Ort des Papierkorbs. Die Seite „Bearbeiten“ ändert nur noch Angaben
+    und Ort.
+  - Papierkorb-Seite `/papierkorb` mit vollem Pfad, Wiederherstellen und „Im Explorer
+    öffnen“; Link im Fußbereich; die Meldung nach dem Löschen verlinkt darauf (D22). CLI:
+    `lager trash list/restore/open`, API: `/api/v1/trash`. Anlass: Lukas hat den Ordner
+    `_papierkorb` nicht gefunden; er lag im Lager-Ordner, nicht im Projektordner.
+  - Fehler behoben: Zwei Löschungen in derselben Sekunde landeten im selben Zeit-Ordner.
+  - `config.yaml` ist lokal (`.gitignore`), eingecheckt ist die Vorlage `config.example.yaml`
+    (D23). Lukas: Die bisherige Konfiguration war nur zum Testen.
 
 ## 3. Arbeitsregeln
 
@@ -110,7 +126,8 @@ Sie stehen vollständig in `CLAUDE.md`. Die wichtigsten:
 - **Tests müssen bestehen**, bevor etwas als fertig gilt. Sichtbares zusätzlich im Browser prüfen.
 - **Nichts erfinden** (Bestände, Kennwerte, Datenblätter).
 - **Nichts Privates ins öffentliche Repository:** keinen Rechnernamen, keine IP, keinen
-  privaten Pfad in Doku oder `config.yaml` (siehe §10).
+  privaten Pfad in Code, Doku, Tests oder Commit-Nachrichten. Die `config.yaml` steht nicht in
+  Git (D23).
 
 ## 4. Einrichten und Befehle
 
@@ -140,6 +157,7 @@ Python 3.14 ist für das Benutzerkonto installiert. Das venv liegt in `.venv` (n
 | `lager index rebuild`, `lager index status` | Index neu aufbauen, Zustand zeigen |
 | `lager qr url [ADRESSE]` | Adresse der QR-Codes zeigen (mit Vorschlag) oder speichern |
 | `lager qr make <TEIL>… [--format svg\|png] [--out ORDNER] [--url BASIS]` | einzelne QR-Bilder schreiben |
+| `lager trash list`, `lager trash restore <ID>`, `lager trash open` | Papierkorb ansehen, Eintrag zurückholen, Ordner im Explorer öffnen |
 | `lager serve [--host H] [--port P]` | Web-Server starten; fürs Handy `--host 0.0.0.0` |
 
 Jeder Befehl kennt `--json`. Fehler: Exit-Code ungleich 0 und deutsche Meldung auf stderr.
@@ -148,7 +166,8 @@ Jeder Befehl kennt `--json`. Fehler: Exit-Code ungleich 0 und deutsche Meldung a
 
 ```
 src/lager/
-  config.py         config.yaml laden; set_lager_root und set_public_url ändern nur ihre Zeile
+  config.py         config.yaml laden; set_lager_root und set_public_url ändern nur ihre Zeile;
+                    ensure_config_file legt eine fehlende config.yaml aus der Vorlage an
   root.py           Lager-Ordner erkennen und prüfen; create_structure legt ein leeres Lager an
   names.py          Regeln für Ordnernamen (Bezeichnungen, Unterkategorien): clean, check
   categories.py     categories.yaml; normalize_id; Unterkategorien: normalize_subcategory,
@@ -156,9 +175,10 @@ src/lager/
   parts.py          create_part, update_part, move_part (umbenennen, verschieben), delete_part,
                     find_part_dir, location_of
   files.py          Dateien aufnehmen (nach Art einsortieren, nie überschreiben); remove_file
-  trash.py          Papierkorb: move_to_trash verschiebt nach <root>/_papierkorb/<Zeit>/<Pfad>
+  trash.py          Papierkorb: move_to_trash verschiebt nach <root>/_papierkorb/<Zeit>/<Pfad>;
+                    entries, find_entry, restore_problem, restore; local_time für die Anzeige
   labels.py         QR-Etiketten: Adresse (Vorschlag, Prüfung), QR-Code, Text einpassen, A4-Seiten
-  dialogs.py        pick_folder: startet das Ordner-Auswahlfenster als eigenen Prozess
+  dialogs.py        pick_folder: Ordner-Auswahlfenster als eigener Prozess; reveal: Ordner im Explorer
   folder_dialog.py  das Auswahlfenster selbst (python -m lager.folder_dialog, tkinter)
   schema.sql        Schema des Index, reines SQL
   db.py             Index öffnen, Schema anlegen, Version prüfen
@@ -168,11 +188,13 @@ src/lager/
   server/
     app.py          FastAPI: REST-API (/api/v1), /files, Seiten; create_app(root, cfg, config_path, bind_host)
     schemas.py      Antwort- und Eingabe-Formate der API
-    templates/      base, index, _results (Trefferliste), part, new, edit, _subcategory, labels, login
+    templates/      base, index, _results (Trefferliste), part, new, edit, rename, delete, trash,
+                    _subcategory, _icons (Symbole als SVG), labels, login
     static/         style.css, app.js (Suche beim Tippen, Unterkategorien, Hochladen mit
                     Fortschritt, Rückfrage vor dem Löschen, Ordner-Auswahl)
 tests/
-  conftest.py            Test-Lager (lager_voll), Test-Browser (client, phone, geschuetzt), Test-Netz (netz)
+  conftest.py            Test-Lager (lager_voll), Test-Browser (client, phone, geschuetzt), Test-Netz (netz),
+                         Sperre für echte Fenster (keine_fenster)
   test_core.py           Lager-Ordner, Kategorien, Bauteile, config
   test_index.py          Index und Suche
   test_files.py          Dateien aufnehmen, eindeutige Bezeichnung, Pfad in config.yaml
@@ -182,11 +204,13 @@ tests/
   test_phase2.py         bearbeiten (Kern, CLI, Web, API), Suche beim Tippen, Anmelden
   test_labels.py         QR-Etiketten: Adresse, Größen, QR-Code, Text, Seiten, Seite /etiketten, CLI
   test_manage.py         freie Bezeichnungen, Unterkategorien, umbenennen, verschieben, löschen,
-                         Papierkorb, Meldungen beim Hochladen, Ordner-Auswahl
+                         Knöpfe der Bauteilseite, Meldungen beim Hochladen, Ordner-Auswahl
+  test_trash.py          Papierkorb: Inhalt, Wiederherstellen, Seiten, API, CLI
 tools/
   demo_server.py         Wegwerf-Lager mit Server für Sichtprüfungen im Browser (§7a)
 lager/                   Beispiel-Lager (liegt im öffentlichen Repository)
-config.yaml              lager_root, server.host/port/public_url, write_token, optional file_kinds
+config.example.yaml      Vorlage (in Git): lager_root, server.host/port/public_url, write_token, file_kinds
+config.yaml              Einstellungen dieses Rechners (nicht in Git, wird aus der Vorlage angelegt)
 ```
 
 ## 6. Verträge
@@ -206,6 +230,15 @@ config.yaml              lager_root, server.host/port/public_url, write_token, o
 - **Umbenennen (D20):** Die alte Bezeichnung kommt in `aliases`; `/p/<alt>` leitet auf die neue
   Seite weiter, wenn genau ein Bauteil diesen Alias trägt (`search.find_by_alias`).
 - **Löschen (D19):** nie endgültig, immer nach `_papierkorb/<JJJJMMTTTHHMMSSZ>/<Pfad im Lager>`.
+  Jedes Löschen bekommt einen eigenen Zeit-Ordner (in derselben Sekunde mit `-2`, `-3`, …),
+  darin genau ein Eintrag: ein Bauteil-Ordner oder eine Datei.
+- **Papierkorb lesen (D22):** Die ID eines Eintrags ist der Name seines Zeit-Ordners. Der Weg
+  vom Zeit-Ordner zum Eintrag besteht aus Ordnern mit genau einem Inhalt; ein Ordner mit
+  `part.yaml` ist ein Bauteil, eine Datei am Ende eine Datei. Leere oder von Hand vermischte
+  Zeit-Ordner werden übersprungen. Wiederherstellen schreibt nie über etwas: Fehlt der Platz
+  oder ist die Bezeichnung vergeben, gibt es einen Grund statt einer Änderung.
+- **Konfiguration (D23):** `config.yaml` ist je Rechner und steht nicht in Git; Vorlage ist
+  `config.example.yaml`.
 - **Index:** Tabellen `meta`, `categories`, `parts`, `part_aliases`, `part_tags`, `files`. Ein
   Neuaufbau leert und füllt sie in einer Transaktion. `parts.id` ist nicht stabil; dauerhafte
   Verweise nutzen `parts.rel_path`. `meta.generator` nennt die Programmversion; passt sie nicht,
@@ -213,23 +246,27 @@ config.yaml              lager_root, server.host/port/public_url, write_token, o
 - **JSON (D10):** Datensätze mit englischen Feldnamen (`part`, `name`, `category`, `subcategory`,
   `path`, `files[path, kind, ext, size, mtime]`), Rahmenfelder deutsch (`suche`, `anzahl`,
   `treffer`, `teile`, `dateien`, `warnungen`, `geloescht`, `papierkorb`).
-- **Server-Routen:** lesend `/`, `/suche`, `/p/<teil>`, `/p/<teil>/bearbeiten`, `/neu`, `/etiketten`,
-  `/anmelden`, `/files/<pfad>`, `/api/v1/{health,parts,parts/<teil>,categories,index}`, `/docs`.
-  Schreibend `POST /neu`, `POST /p/<teil>/bearbeiten`, `POST /p/<teil>/loeschen`,
-  `POST /p/<teil>/dateien`, `POST /p/<teil>/dateien/loeschen`, `POST /index/rebuild`,
+- **Server-Routen:** lesend `/`, `/suche`, `/p/<teil>`, `/p/<teil>/bearbeiten`,
+  `/p/<teil>/umbenennen`, `/p/<teil>/loeschen` (Rückfrage), `/neu`, `/etiketten`, `/papierkorb`,
+  `/anmelden`, `/files/<pfad>`, `/api/v1/{health,parts,parts/<teil>,categories,index,trash}`,
+  `/docs`. Schreibend `POST /neu`, `POST /p/<teil>/bearbeiten`, `POST /p/<teil>/umbenennen`,
+  `POST /p/<teil>/loeschen` (mit `sicher=1`), `POST /p/<teil>/dateien`,
+  `POST /p/<teil>/dateien/loeschen`, `POST /papierkorb/wiederherstellen`, `POST /index/rebuild`,
   `POST /einstellungen/lager-ordner`, `POST /einstellungen/ordner-waehlen`,
-  `POST /etiketten/adresse`, `POST /anmelden`, `POST /abmelden`,
-  `POST /api/v1/{parts,parts/<teil>/files,categories,index/rebuild}`,
+  `POST /papierkorb/oeffnen`, `POST /etiketten/adresse`, `POST /anmelden`, `POST /abmelden`,
+  `POST /api/v1/{parts,parts/<teil>/files,categories,index/rebuild,trash/<id>/restore}`,
   `PATCH /api/v1/parts/<teil>`, `DELETE /api/v1/parts/<teil>`,
   `DELETE /api/v1/parts/<teil>/files/<pfad>`.
 - **Meldungen nach einer Aktion** stehen in der Adresse der Zielseite und werden nur gezeigt,
   wenn sie stimmen: `/?hinweis=eingelesen|ordner|geloescht&teil=…`,
-  `/p/<teil>?hochgeladen=…&geloescht=…&frueher=…`, `/etiketten?hinweis=adresse`.
+  `/p/<teil>?hochgeladen=…&geloescht=…&frueher=…&wiederhergestellt=…`,
+  `/etiketten?hinweis=adresse`, `/papierkorb?hinweis=explorer`. Nach dem Löschen steht unter
+  der Meldung ein Link zum Papierkorb (`erfolg_link` im Seiten-Kontext).
 - **QR-Code (D15, D16):** Inhalt `<server.public_url>/p/<Bezeichnung>`; ein Etikett je Bauteil.
 - **Schutz (D13, D14):** `/files/…` liefert nur Dateien aus dem Index, SVG nur als Download. Ohne
   `write_token` ist Schreiben im WLAN offen. Mit Token: Kopffeld `X-Lager-Token` oder Anmeldung im
-  Browser (Cookie `lager_token`). Lager-Ordner ändern, Ordner-Auswahlfenster und „Adresse merken“
-  gehen nur bei einem Aufruf vom Server-PC selbst (`is_local`).
+  Browser (Cookie `lager_token`). Lager-Ordner ändern, Ordner-Auswahlfenster, „Im Explorer
+  öffnen“ und „Adresse merken“ gehen nur bei einem Aufruf vom Server-PC selbst (`is_local`).
 
 ## 7. Stolpersteine
 
@@ -253,8 +290,18 @@ config.yaml              lager_root, server.host/port/public_url, write_token, o
 - **Geöffnete Dateien:** Windows verschiebt keinen Ordner, aus dem eine Datei geöffnet ist.
   `move_part`, `delete_part` und `remove_file` melden das als Fehler und ändern nichts.
 - **Kein echtes Netz und kein echtes Fenster in Tests:** Die Fixture `netz` ersetzt Rechnername,
-  IP und Namensauflösung. Das Auswahlfenster wird über `dialogs._run_dialog` oder
-  `server.dialogmod.pick_folder` ersetzt; ein Test darf nie ein echtes Fenster öffnen.
+  IP und Namensauflösung. Die Fixture `keine_fenster` (beide in `conftest.py`, für jeden Test)
+  lässt jeden Test scheitern, der `dialogs._run_dialog` oder `dialogs.reveal` wirklich aufrufen
+  würde. Wer sie braucht, ersetzt sie im Test durch eine Attrappe (Beispiel: Fixture `opened`
+  in `test_trash.py`).
+- **Explorer-Fenster kommen nicht nach vorn:** Windows lässt den Server (ein Programm im
+  Hintergrund) kein Fenster vor den Browser holen. „Im Explorer öffnen“ öffnet das Fenster,
+  es liegt aber oft dahinter; die Meldung sagt das. Das Ordner-Auswahlfenster ist davon nicht
+  betroffen, weil es selbst „zuoberst“ angelegt wird.
+- **`config.yaml` ist nicht mehr in Git:** Ein `git pull` in einem anderen Klon, in dem sie noch
+  eingecheckt war, löscht dort die (unveränderte) Datei; das Programm nimmt dann die
+  Standardwerte und legt sie beim nächsten Speichern aus der Vorlage neu an. Lukas hat einen
+  zweiten, älteren Klon neben dem Projektordner.
 - **Reihenfolge von Ordnern:** Windows sortiert Pfade ohne Rücksicht auf Groß/Klein, Linux nicht.
   Wo die Reihenfolge sichtbar ist, ausdrücklich sortieren (`categories.subcategories`).
 - **Etiketten-Text:** Die Breite der Schrift wird geschätzt (`labels.CHAR_WIDTH`), nicht
@@ -306,8 +353,14 @@ Was sich bewährt hat:
 
 ## 8. Geprüft und nicht geprüft
 
-- **Geprüft:** `pytest` → 316 Tests bestehen (Kern 12, CLI 16, Index 26, Dateien 26, Server lesend
-  20, Server schreibend 32, Phase 2 19, Etiketten 90, Verwalten 75).
+- **Geprüft:** `pytest` → 342 Tests bestehen (Kern 15, CLI 16, Index 26, Dateien 26, Server lesend
+  20, Server schreibend 32, Phase 2 19, Etiketten 90, Verwalten 78, Papierkorb 20).
+- **Im Browser geprüft für 0.7.0 (375 px und 900 px, hell und dunkel, Wegwerf-Lager):** drei
+  Knöpfe auf der Bauteilseite (am Handy 109 px breit, Symbol über dem Wort, nichts läuft über;
+  breit nebeneinander), Umbenennen mit Meldung, Rückfrage-Seite und Löschen mit Link zum
+  Papierkorb, Datei löschen, Papierkorb-Seite mit zwei Einträgen, Wiederherstellen von Bauteil
+  und Datei mit Meldung, Zahl der Einträge im Fußbereich. „Im Explorer öffnen“ einmal echt
+  ausgelöst: Das Fenster öffnet den richtigen Ordner, liegt aber hinter dem Browser.
 - **Im Browser geprüft (375 px Breite, Wegwerf-Lager):** neues Bauteil mit Unterkategorie (die
   Auswahl folgt der Kategorie), Bauteilseite, Hochladen gleich nach der Auswahl mit laufendem
   Balken (60-MB-Datei) und Meldung, Fehlerfall leere Datei, Datei löschen mit Rückfrage,
@@ -316,7 +369,7 @@ Was sich bewährt hat:
   Kasten). Das Ordner-Auswahlfenster öffnet sich über den anderen Fenstern; Abbrechen und
   Auswahl kommen im Eingabefeld an.
 - **Von Lukas am Handy geprüft (Stand 0.5.0):** Seiten öffnen, PDF öffnen, QR-Code lesen.
-- **Nicht geprüft:** die Funktionen aus 0.6.0 am echten Handy; die Dateiauswahl über den echten
+- **Nicht geprüft:** 0.7.0 bei Lukas und am echten Handy; die Funktionen aus 0.6.0 am echten Handy; die Dateiauswahl über den echten
   Dateidialog (nur per Skript ausgelöst); Umbenennen oder Löschen, während eine Datei des
   Bauteils geöffnet ist (die Fehlermeldung ist vorgesehen, aber nicht ausgelöst worden); ein
   Ausdruck auf Papier mit den neuen dreizeiligen Bezeichnungen; das Auswahlfenster unter Linux;
@@ -345,30 +398,25 @@ Lager oder ein neuer Wunsch zuerst anstößt.
 - **Kein Schutz gegen fremde Webseiten (CSRF)** und ohne `write_token` kein Schutz im WLAN.
   Für das private Netz so entschieden (D13); vor einem Betrieb außerhalb davon neu bewerten.
 - **Der Vorschlag für die QR-Adresse** wird einmal je Serverstart ermittelt.
-- **Papierkorb:** wächst, bis Lukas ihn im Explorer leert. Im Programm gibt es dafür nichts.
+- **Papierkorb:** wächst, bis Lukas ihn im Explorer leert. Endgültig löschen gibt es im
+  Programm bewusst nicht. Eine Datei kommt nur in den alten Bauteil-Ordner zurück; wurde das
+  Bauteil inzwischen umbenannt oder verschoben, steht am Eintrag, dass es im Explorer geht.
+- **Der Fußbereich zählt den Papierkorb bei jedem Seitenaufruf** (ein Blick in die Zeit-Ordner).
+  Bei sehr vielen Einträgen ließe sich das zwischenspeichern.
 
 ## 9. Nächste Schritte
 
 In dieser Reihenfolge, jeweils erst nach Absprache mit Lukas. Zu jedem Punkt steht, woran
 man erkennt, dass er fertig ist.
 
-1. **Rückmeldung von Lukas zu 0.6.0 einarbeiten.** Er probiert die neuen Funktionen an seinem
-   eigenen Lager aus. Fertig, wenn er sie am PC und am Handy benutzt hat und nichts offen ist.
-2. **`config.yaml` aus dem öffentlichen Repository lösen** (nur wenn Lukas zustimmt, §10).
-   Vorschlag: `config.example.yaml` einchecken (heutiger Inhalt mit `lager_root: "lager"`),
-   `config.yaml` in `.gitignore` und mit `git rm --cached config.yaml` aus Git nehmen (die
-   Datei bleibt dabei auf der Platte), in `config.py` beim ersten Schreiben die Beispiel-Datei
-   als Vorlage kopieren, falls `config.yaml` fehlt. Dazu passt eine Umgebungsvariable für eine
-   andere `config.yaml`, damit sich die CLI gefahrlos gegen ein Wegwerf-Lager ausprobieren
-   lässt. Fertig, wenn ein frischer Klon ohne `config.yaml` startet (Auto-Erkennung von
-   `lager/`), `set_lager_root` und `set_public_url` die Kommentare der Vorlage behalten und
-   `git status` bei Lukas keine geänderte `config.yaml` mehr zeigt.
-3. **Papierkorb im Programm:** Seite und Befehl, die den Inhalt von `_papierkorb` zeigen, ein
-   Bauteil oder eine Datei zurück an den alten Platz schieben und einzelne Einträge oder alles
-   endgültig löschen. Der alte Platz steht im Pfad (`_papierkorb/<Zeit>/<Pfad im Lager>`).
-   Beim Wiederherstellen prüfen, dass die Bezeichnung nicht inzwischen neu vergeben ist.
-   Endgültiges Löschen ist nicht umkehrbar: nur mit ausdrücklicher Bestätigung, und vorher
-   mit Lukas klären, ob er das im Programm überhaupt will. Kern in `trash.py`.
+1. **Rückmeldung von Lukas zu 0.7.0 einarbeiten.** Er probiert die Knöpfe und den Papierkorb
+   an seinem Lager aus. Fertig, wenn er sie am PC und am Handy benutzt hat und nichts offen ist.
+2. **Nur falls Lukas es möchte: endgültig löschen im Programm** (einzelne Einträge oder den
+   ganzen Papierkorb). Nicht umkehrbar: nur mit ausdrücklicher Bestätigung auf einer eigenen
+   Seite. Bis dahin geht es bewusst nur im Explorer (D22).
+3. **Umgebungsvariable für eine andere `config.yaml`**, damit sich die CLI gefahrlos gegen ein
+   Wegwerf-Lager ausprobieren lässt (heute zeigt die CLI im Projektordner immer auf Lukas'
+   Lager). Fertig, wenn `tools/demo_server.py` und ein Test sie nutzen.
 4. **Kategorien und Unterkategorien im Web verwalten:** umbenennen (Kategorie: nur der
    Anzeigename in `categories.yaml`; Unterkategorie: der Ordner), leere löschen. Eine
    Kategorie-ID zu ändern hieße, den Ordner umzubenennen; das ändert alle Pfade darunter und
@@ -384,10 +432,6 @@ man erkennt, dass er fertig ist.
 
 ## 10. Offene Fragen an Lukas
 
-- **`config.yaml` im öffentlichen Repository:** Sie ist eingecheckt, enthält bei Lukas aber
-  lokal den Pfad zu seinem eigenen Lager (und später die QR-Adresse). Diese lokale Änderung
-  wird nicht committet. Vorschlag: `config.yaml` aus Git nehmen (`.gitignore`) und eine
-  `config.example.yaml` einchecken. Noch nicht entschieden.
 - **Test-Bauteile im Beispiel-Lager:** Unter `lager/microcontroller/` liegen drei Bauteile aus
   Lukas' Test, eines mit einem Datenblatt eines Herstellers. Sie sind nicht eingecheckt. Sollen
   sie ins Beispiel-Lager oder wieder weg?

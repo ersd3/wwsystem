@@ -63,7 +63,8 @@ lesende Befehle, die Tests oder `tools/demo_server.py` nehmen (HANDOVER.md §7a)
 - **Umlaute:** Dateien immer mit `encoding="utf-8"` lesen und schreiben.
 - **Echte Daten:** Der Ordner `lager/` im Projekt ist das Beispiel-Lager und liegt im öffentlichen
   Repository. Keine privaten Daten oder fremden Datenblätter hinein committen.
-- **`config.yaml` ist eingecheckt, bei Lukas aber lokal geändert** (Pfad zu seinem eigenen Lager).
-  Diese Änderung nie mit committen: Dateien einzeln mit `git add <datei>` vormerken, nicht `git add -A`.
-- **Tests öffnen nie ein echtes Fenster und nutzen kein echtes Netz** (Fixture `netz`,
-  `dialogs._run_dialog` ersetzen).
+- **`config.yaml` ist lokal** (in `.gitignore`); eingecheckt ist die Vorlage `config.example.yaml`.
+  Dateien trotzdem einzeln mit `git add <datei>` vormerken, nicht `git add -A`: Im Beispiel-Lager
+  `lager/` liegen Test-Bauteile von Lukas, die (noch) nicht eingecheckt werden (HANDOVER.md §10).
+- **Tests öffnen nie ein echtes Fenster und nutzen kein echtes Netz.** Dafür sorgen die Fixtures
+  `netz` und `keine_fenster` in `tests/conftest.py`; wer ein Fenster braucht, ersetzt es im Test.
