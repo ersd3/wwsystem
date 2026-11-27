@@ -1,22 +1,21 @@
 # HANDOVER — Bauteile-Lagersystem „Lager“
 
-**Stand:** 2026-11-27, Version 0.7.0
+**Stand:** 2026-11-27, Version 0.8.0
 **Zuletzt bearbeitet von:** Claude Opus 5.5 (Claude Code), vorher Claude Fable 5.2
 **Vorgeschichte:** begonnen von einem lokalen LM-Studio-Agenten am 2026-11-11; die ganze Historie steht in Git.
 
 Dieses Dokument beschreibt den aktuellen Zustand. Regeln und Befehle in Kurzform stehen in
-[CLAUDE.md](CLAUDE.md), Konzept und Entscheidungen (D1–D25) in [KONZEPT.md](KONZEPT.md).
+[CLAUDE.md](CLAUDE.md), Konzept und Entscheidungen (D1–D29) in [KONZEPT.md](KONZEPT.md).
 
 ---
 
 ## 0. Einstieg für den nächsten Agenten
 
-**Der Stand ist abgeschlossen:** Alles bis Version 0.7.0, dazu der Plan für „Automatisch
-ergänzen“ und das Probelauf-Skript, ist committet und auf `main` gepusht.
-0.7.0 setzt Lukas' Rückmeldung zu 0.6.0 um (eigene Knöpfe, Papierkorb-Seite, `config.yaml`
-lokal). **Als Nächstes geplant ist „Automatisch ergänzen“** (KONZEPT.md §6d, D25): Schritt 0,
-der Probelauf mit `tools/probelauf.py`: Die lokalen Modelle sind getestet, der Mouser-Schlüssel
-wartet noch auf Freigabe (§9). Gebaut ist noch nichts.
+**Der Stand ist abgeschlossen:** Alles bis Version 0.8.0 ist committet und auf `main` gepusht.
+**In Arbeit ist „Automatisch ergänzen“** (KONZEPT.md §6d, D25, D26): Schritt 1, das
+Grundgerüst „Vorschlag“, ist fertig (0.8.0). Es sucht noch nichts; vorgeschlagen wird nur die
+Bezeichnung aus der Eingabe. Von Schritt 0 sind die lokalen Modelle getestet; der
+Mouser-Schlüssel wartet noch auf Freigabe. Welcher Schritt als Nächstes kommt, steht in §9.
 
 **In dieser Reihenfolge lesen:** `CLAUDE.md` (Regeln, Befehle, Stolpersteine), dieses Dokument,
 dann von `KONZEPT.md` nur die Abschnitte, die zur Aufgabe gehören (§3 Ordner, §5 Kategorien,
@@ -82,7 +81,7 @@ Lukas verwaltet privat eine große Sammlung elektronischer Bauteile. Das System 
 | 3a | QR-Etiketten: Seite `/etiketten` (Druck auf A4), QR-Code auf der Bauteilseite, Adresse als Name, `lager qr url`, `lager qr make` | fertig; von Lukas geprüft: Das Handy liest den Code |
 | – | Verwalten (0.6.0): freie Bezeichnungen, Unterkategorien, umbenennen, verschieben, löschen in den Papierkorb, Hochladen mit Fortschritt, Ordner-Auswahlfenster | fertig; von Lukas am PC ausprobiert: Umbenennen und Löschen gehen, den Papierkorb hat er nicht gefunden |
 | – | Rückmeldung zu 0.6.0 (0.7.0): drei eigene Knöpfe mit neuem Design, eigene Seiten für Umbenennen und Löschen, Papierkorb-Seite mit Wiederherstellen, `config.yaml` lokal | fertig; von Lukas noch nicht ausprobiert |
-| A | Automatisch ergänzen (KONZEPT.md §6d): Vorschlag aus Mouser, KiCad-Bibliothek und lokaler KI-Recherche, Prüfseite | geplant; Modelle getestet, Mouser-Schlüssel wartet auf Freigabe (§9) |
+| A | Automatisch ergänzen (KONZEPT.md §6d): Vorschlag aus Mouser, KiCad-Bibliothek und lokaler KI-Recherche, Prüfseite | in Arbeit: Grundgerüst „Vorschlag“ fertig (0.8.0, im Browser geprüft, von Lukas noch nicht ausprobiert); Modelle getestet; Mouser-Schlüssel wartet auf Freigabe (§9) |
 | 3b | HTTPS mit Kamera-Scanner in der Seite und Startbildschirm | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
 | 5 | Mengen ein- und ausbuchen mit Verlauf | offen |
@@ -91,7 +90,7 @@ Lukas verwaltet privat eine große Sammlung elektronischer Bauteile. Das System 
 Zwei Ideen ohne festen Platz stehen in `KONZEPT.md` §10: (A) Bauteile automatisch ergänzen
 lassen, (B) KiCad-Dateien als Bibliothek bereitstellen.
 
-### Was in 0.5.0 bis 0.7.0 dazukam
+### Was in 0.5.0 bis 0.8.0 dazukam
 
 - **0.5.0, QR-Etiketten (Phase 3a):** `labels.py`, Seite `/etiketten`, QR-Code auf der
   Bauteilseite, `server.public_url` mit Vorschlag und Prüfung, CLI-Gruppe `lager qr`.
@@ -118,6 +117,31 @@ lassen, (B) KiCad-Dateien als Bibliothek bereitstellen.
   - Fehler behoben: Zwei Löschungen in derselben Sekunde landeten im selben Zeit-Ordner.
   - `config.yaml` ist lokal (`.gitignore`), eingecheckt ist die Vorlage `config.example.yaml`
     (D23). Lukas: Die bisherige Konfiguration war nur zum Testen.
+- **0.8.0, Automatisch ergänzen, Schritt 1: Grundgerüst „Vorschlag“** (KONZEPT.md §6d, D26):
+  - Kasten „Automatisch ergänzen“ oben auf `/neu`: Eingabe → Vorschlag unter
+    `_entwuerfe/<Zeitpunkt>/draft.yaml` → Seite „Vorschlag prüfen“ (`/vorschlag/<ID>`) mit
+    Herkunft unter jedem vorgeschlagenen Wert → „Bauteil anlegen“ oder „Vorschlag verwerfen“
+    (Papierkorb, zurückholbar). Offene Vorschläge stehen auf `/neu`.
+  - Noch ohne Suche: Vorgeschlagen wird nur die Bezeichnung aus der Eingabe; die Seiten sagen
+    das. Gefundene Dateien im Vorschlags-Ordner werden beim Anlegen schon einsortiert.
+  - Kern `drafts.py`; CLI `lager draft new/list/show/save/discard`; API `/api/v1/drafts`
+    (ohne Speichern, D26). Formularfelder von `/neu` liegen jetzt in `_part_fields.html`,
+    die Auswertung in `part_form` und `_create_from_form` (für `/neu` und den Vorschlag).
+  - Papierkorb kennt die Art „Vorschlag“; Zeitpunkt-Ordner legt `trash.claim_stamp_folder` an
+    (Papierkorb und Vorschläge).
+  - **Nach Lukas' Rückmeldung (2026-11-27) im Hintergrund (D27):** „Vorschlag erstellen“
+    kehrt sofort zu `/neu` zurück (leeres Feld mit Fokus); `server/worker.py` bereitet die
+    Vorschläge einen nach dem anderen vor; die Liste zeigt den Stand und lädt nach; die Zahl
+    fertiger Vorschläge steht am Plus.
+  - **Landeseite (D29, Wunsch von Lukas):** Nach dem Anlegen (von Hand oder aus einem
+    Vorschlag) und nach dem Wiederherstellen eines ganzen Bauteils geht es auf die
+    Startseite: „„X“ ist angelegt.“ bzw. „… ist aus dem Papierkorb zurück.“ mit Link „Zum
+    Bauteil“ (`/?hinweis=angelegt|wiederhergestellt&teil=X`, nur gemeldet, wenn es das
+    Bauteil gibt). Eine wiederhergestellte Datei führt weiter auf die Seite ihres Bauteils.
+  - **Kaputte Knöpfe bei Lukas (0.7.0) behoben (D28):** Ursache war die alte `style.css` im
+    Zwischenspeicher seines Browsers (nachgestellt: ohne die neuen Regeln werden die Symbole
+    riesig und schwarz). Jetzt `Cache-Control: no-cache` und `?v=<Kennung>` für `style.css`
+    und `app.js`; die Symbole tragen Größe und Strich auch am SVG.
 
 ## 3. Arbeitsregeln
 
@@ -161,6 +185,8 @@ Python 3.14 ist für das Benutzerkonto installiert. Das venv liegt in `.venv` (n
 | `lager qr url [ADRESSE]` | Adresse der QR-Codes zeigen (mit Vorschlag) oder speichern |
 | `lager qr make <TEIL>… [--format svg\|png] [--out ORDNER] [--url BASIS]` | einzelne QR-Bilder schreiben |
 | `lager trash list`, `lager trash restore <ID>`, `lager trash open` | Papierkorb ansehen, Eintrag zurückholen, Ordner im Explorer öffnen |
+| `lager draft new "<Eingabe>"`, `lager draft list`, `lager draft show <ID>` | Vorschlag anlegen und gleich vorbereiten (die CLI wartet; die Seite arbeitet im Hintergrund), Liste mit Stand, ansehen (jeder Wert mit Herkunft) |
+| `lager draft save <ID> [-c <kategorie>] [-p <Bezeichnung>] …`, `lager draft discard <ID>` | Vorschlag als Bauteil speichern (fehlende Angaben aus dem Vorschlag) oder in den Papierkorb |
 | `python tools/probelauf.py mouser [Begriff …] [--exakt]` | Mouser-Schlüssel prüfen, Trefferlisten ansehen (Schlüssel aus `config.yaml`, wird nie ausgegeben) |
 | `python tools/probelauf.py modell [--model ID] [--bild PFAD] [--json DATEI] [--denken niedrig]` | ein geladenes Modell über LM Studio auf Tempo und Güte testen |
 | `python tools/probelauf.py reihe --ordner ORDNER [--bild PFAD] [--stunden N]` | alle Modelle in LM Studio nacheinander laden und testen, beide Denkstufen, Übersicht in `ORDNER/uebersicht.md`; schon getestete werden übersprungen, am Ende wird alles entladen |
@@ -182,7 +208,12 @@ src/lager/
                     find_part_dir, location_of
   files.py          Dateien aufnehmen (nach Art einsortieren, nie überschreiben); remove_file
   trash.py          Papierkorb: move_to_trash verschiebt nach <root>/_papierkorb/<Zeit>/<Pfad>;
-                    entries, find_entry, restore_problem, restore; local_time für die Anzeige
+                    entries, find_entry, restore_problem, restore; local_time für die Anzeige;
+                    claim_stamp_folder, is_stamp, stamp_iso (Zeitpunkt-Ordner, auch für Vorschläge)
+  drafts.py         Vorschläge („Automatisch ergänzen“): create (Stand queued), process (Stufen aus
+                    STAGES, Sperrdatei .in-arbeit), pending, process_pending, load, entries,
+                    finish (Dateien ins neue Bauteil, Vorschlag weg), save (für die CLI),
+                    discard (Papierkorb), describe_source (Herkunft als Text und sicherer Link)
   labels.py         QR-Etiketten: Adresse (Vorschlag, Prüfung), QR-Code, Text einpassen, A4-Seiten
   dialogs.py        pick_folder: Ordner-Auswahlfenster als eigener Prozess; reveal: Ordner im Explorer
   folder_dialog.py  das Auswahlfenster selbst (python -m lager.folder_dialog, tkinter)
@@ -192,12 +223,16 @@ src/lager/
   search.py         search, get_part, find_by_alias, list_categories, find_file — einfache dicts
   cli.py            alle Befehle (Typer); main() stellt die Ausgabe auf UTF-8
   server/
-    app.py          FastAPI: REST-API (/api/v1), /files, Seiten; create_app(root, cfg, config_path, bind_host)
+    app.py          FastAPI: REST-API (/api/v1), /files, Seiten; create_app(root, cfg, config_path, bind_host);
+                    startet und stoppt den Arbeiter (lifespan); style.css/app.js mit no-cache und ?v=
+    worker.py       DraftWorker: Thread, der wartende Vorschläge vorbereitet (wake, run_once)
     schemas.py      Antwort- und Eingabe-Formate der API
     templates/      base, index, _results (Trefferliste), part, new, edit, rename, delete, trash,
+                    draft („Vorschlag prüfen“), _drafts (Liste mit Stand, auch zum Nachladen),
+                    _part_fields (Felder von new und draft), _source (Herkunft eines Werts),
                     _subcategory, _icons (Symbole als SVG), labels, login
     static/         style.css, app.js (Suche beim Tippen, Unterkategorien, Hochladen mit
-                    Fortschritt, Rückfrage vor dem Löschen, Ordner-Auswahl)
+                    Fortschritt, Rückfrage vor dem Löschen, Ordner-Auswahl, Vorschläge nachladen)
 tests/
   conftest.py            Test-Lager (lager_voll), Test-Browser (client, phone, geschuetzt), Test-Netz (netz),
                          Sperre für echte Fenster (keine_fenster)
@@ -212,6 +247,7 @@ tests/
   test_manage.py         freie Bezeichnungen, Unterkategorien, umbenennen, verschieben, löschen,
                          Knöpfe der Bauteilseite, Meldungen beim Hochladen, Ordner-Auswahl
   test_trash.py          Papierkorb: Inhalt, Wiederherstellen, Seiten, API, CLI
+  test_drafts.py         Vorschläge: Kern, Vorbereiten und Arbeiter, Papierkorb, Seiten, API, CLI
 tools/
   demo_server.py         Wegwerf-Lager mit Server für Sichtprüfungen im Browser (§7a)
   probelauf.py           Probelauf für „Automatisch ergänzen“: Mouser und lokale Modelle (§9)
@@ -225,7 +261,8 @@ config.yaml              Einstellungen dieses Rechners (nicht in Git, wird aus d
 Ändern nur mit Eintrag in `KONZEPT.md` und hier.
 
 - **Ordner:** `<root>/categories.yaml`, `<root>/<kategorie>/[<Unterkategorie>/…]<Bezeichnung>/part.yaml`.
-  Ordner mit Präfix `_` oder `.` ignoriert der Scanner (`_vorlage`, `_papierkorb`, `.lager`).
+  Ordner mit Präfix `_` oder `.` ignoriert der Scanner (`_vorlage`, `_papierkorb`, `_entwuerfe`,
+  `.lager`).
   Dateien: PDFs direkt im Bauteil-Ordner, `3d/`, `kicad/`, `images/` für die anderen Arten.
 - **Bezeichnung (D17):** so, wie sie eingegeben wurde; gültiger Ordnername unter Windows und Linux
   (`names.check`); im ganzen Lager eindeutig ohne Rücksicht auf Groß/Klein (D11). Sie ist der
@@ -243,7 +280,18 @@ config.yaml              Einstellungen dieses Rechners (nicht in Git, wird aus d
   vom Zeit-Ordner zum Eintrag besteht aus Ordnern mit genau einem Inhalt; ein Ordner mit
   `part.yaml` ist ein Bauteil, eine Datei am Ende eine Datei. Leere oder von Hand vermischte
   Zeit-Ordner werden übersprungen. Wiederherstellen schreibt nie über etwas: Fehlt der Platz
-  oder ist die Bezeichnung vergeben, gibt es einen Grund statt einer Änderung.
+  oder ist die Bezeichnung vergeben, gibt es einen Grund statt einer Änderung. Ein Ordner mit
+  `draft.yaml` ist ein verworfener Vorschlag (Art `draft`) und kommt nach `_entwuerfe/` zurück.
+- **Vorschlag (D26, D27):** `<root>/_entwuerfe/<Zeitpunkt>/draft.yaml` (Schema 1) mit `id`,
+  `created`, `updated`, `status` (queued/running/ready/failed), `error`, `input`, `fields` (je
+  Feld `value` und `source` mit `kind` input/api/library/web, dazu `name`, `url`, `quote`) und
+  `files`; gefundene Dateien liegen daneben. Während der Bearbeitung liegt dort `.in-arbeit`
+  (Sperre, nach 30 Minuten verfallen). draft.yaml wird in einem Schritt ersetzt, nie halb
+  geschrieben. Format: KONZEPT.md §6d. Gespeichert wird nur, wenn der Vorschlag fertig ist,
+  und nur auf der Seite oder mit `lager draft save`, nicht über die API.
+- **Statische Dateien (D28):** `style.css` und `app.js` werden mit `?v=<Kennung des Inhalts>`
+  eingebunden und mit `Cache-Control: no-cache` ausgeliefert. Symbole tragen Größe und Strich
+  auch am SVG (Rückfall, falls eine alte `style.css` im Browser liegt).
 - **Konfiguration (D23):** `config.yaml` ist je Rechner und steht nicht in Git; Vorlage ist
   `config.example.yaml`.
 - **Index:** Tabellen `meta`, `categories`, `parts`, `part_aliases`, `part_tags`, `files`. Ein
@@ -372,8 +420,23 @@ Was sich bewährt hat:
 
 ## 8. Geprüft und nicht geprüft
 
-- **Geprüft:** `pytest` → 342 Tests bestehen (Kern 15, CLI 16, Index 26, Dateien 26, Server lesend
-  20, Server schreibend 32, Phase 2 19, Etiketten 90, Verwalten 78, Papierkorb 20).
+- **Geprüft:** `pytest` → 400 Tests bestehen (Kern 15, CLI 16, Index 26, Dateien 26, Server lesend
+  21, Server schreibend 32, Phase 2 19, Etiketten 90, Verwalten 79, Papierkorb 20, Vorschläge 56).
+- **Im Browser geprüft nach Lukas' Rückmeldung (375 px, dunkel, Wegwerf-Lager):** drei Bauteile
+  hintereinander eingegeben, nur getippt und Enter (das Feld behält den Fokus); Liste mit
+  Stand, Zahl am Plus; ein künstlich zurückgehaltener Vorschlag stand auf „wartet“, nach dem
+  Freigeben stellte sich die Liste nach 7 s von selbst auf „bereit zum Prüfen“ um (ohne die
+  Seite neu zu laden) und fragte danach nicht mehr nach; Vorschlag prüfen und anlegen. Die
+  alte style.css nachgestellt: vorher riesige schwarze Symbole, jetzt kleine. Danach (D29):
+  Bauteil von Hand anlegen → Startseite mit „„BC547“ ist angelegt.“ und Link; löschen und im
+  Papierkorb wiederherstellen → Startseite mit „… ist aus dem Papierkorb zurück.“ Keine
+  Fehler in Konsole und Server-Log.
+- **Im Browser geprüft für 0.8.0 (375 px, hell und dunkel, Wegwerf-Lager):** Kasten
+  „Automatisch ergänzen“ auf `/neu`, Vorschlag erstellen, Seite „Vorschlag prüfen“ mit Herkunft
+  unter der Bezeichnung, Bezeichnung und Kategorie ändern und „Bauteil anlegen“ (führt zur
+  Bauteilseite), Vorschlag verwerfen mit Meldung und Link, Papierkorb zeigt „Vorschlag“,
+  Wiederherstellen führt zurück zum Vorschlag, Liste „Offene Vorschläge“. Nichts läuft über,
+  keine Fehler in der Konsole.
 - **Im Browser geprüft für 0.7.0 (375 px und 900 px, hell und dunkel, Wegwerf-Lager):** drei
   Knöpfe auf der Bauteilseite (am Handy 109 px breit, Symbol über dem Wort, nichts läuft über;
   breit nebeneinander), Umbenennen mit Meldung, Rückfrage-Seite und Löschen mit Link zum
@@ -388,7 +451,9 @@ Was sich bewährt hat:
   Kasten). Das Ordner-Auswahlfenster öffnet sich über den anderen Fenstern; Abbrechen und
   Auswahl kommen im Eingabefeld an.
 - **Von Lukas am Handy geprüft (Stand 0.5.0):** Seiten öffnen, PDF öffnen, QR-Code lesen.
-- **Nicht geprüft:** 0.7.0 bei Lukas und am echten Handy; die Funktionen aus 0.6.0 am echten Handy; die Dateiauswahl über den echten
+- **Nicht geprüft:** 0.7.0 und 0.8.0 bei Lukas und am echten Handy; die Herkunft „von Mouser“
+  oder „aus einer Quelle im Netz“ und Dateien im Vorschlag nur mit von Hand geänderten
+  Vorschlägen in Tests (es gibt noch keine Suche, die sie erzeugt); die Funktionen aus 0.6.0 am echten Handy; die Dateiauswahl über den echten
   Dateidialog (nur per Skript ausgelöst); Umbenennen oder Löschen, während eine Datei des
   Bauteils geöffnet ist (die Fehlermeldung ist vorgesehen, aber nicht ausgelöst worden); ein
   Ausdruck auf Papier mit den neuen dreizeiligen Bezeichnungen; das Auswahlfenster unter Linux;
@@ -421,15 +486,25 @@ Lager oder ein neuer Wunsch zuerst anstößt.
   Programm bewusst nicht. Eine Datei kommt nur in den alten Bauteil-Ordner zurück; wurde das
   Bauteil inzwischen umbenannt oder verschoben, steht am Eintrag, dass es im Explorer geht.
 - **Der Fußbereich zählt den Papierkorb bei jedem Seitenaufruf** (ein Blick in die Zeit-Ordner).
-  Bei sehr vielen Einträgen ließe sich das zwischenspeichern.
+  Bei sehr vielen Einträgen ließe sich das zwischenspeichern. Ebenso liest jede Seite alle
+  offenen Vorschläge für die Zahl am Plus.
+- **Vorschläge vorbereitet werden nur, solange der Server läuft** (oder mit `lager draft new`
+  in der CLI). Nach einem Neustart macht der Arbeiter mit den wartenden weiter. Eine
+  abgebrochene Bearbeitung beginnt erst nach 30 Minuten neu (Sperre verfällt); bei den
+  heutigen Stufen dauert eine Bearbeitung Millisekunden, mit KI-Recherche später Minuten.
+- **Ein Vorschlag „in Arbeit“ lässt sich nicht verwerfen.** Ein Stopp-Knopf kommt mit der
+  KI-Recherche (Stufe 5).
 
 ## 9. Nächste Schritte
 
 In dieser Reihenfolge, jeweils erst nach Absprache mit Lukas. Zu jedem Punkt steht, woran
 man erkennt, dass er fertig ist.
 
-1. **Automatisch ergänzen, Schritt 0 abschließen** (KONZEPT.md §6d). Stand des Probelaufs:
+1. **Automatisch ergänzen weiterbauen** (KONZEPT.md §6d). Stand:
 
+   - **Schritt 1, Grundgerüst „Vorschlag“: fertig** (0.8.0). Jeder weitere Schritt füllt
+     `draft.yaml` (Werte mit `source`, Dateien in den Ordner des Vorschlags); Seite, Speichern
+     und Verwerfen sind schon da.
    - **Mouser:** Schlüssel eingetragen (lokale `config.yaml`), am 26. und 27.11. noch nicht von
      Mouser freigegeben (Antwort „Invalid unique identifier“). Wieder prüfen mit
      `python tools/probelauf.py mouser`.
@@ -441,12 +516,13 @@ man erkennt, dass er fertig ist.
      Die Rohberichte lagen nur im Scratchpad der Sitzung; ein neu geladenes Modell lässt sich
      mit `probelauf.py reihe` nachtesten.
 
-   Fertig, wenn der Mouser-Schlüssel freigegeben ist, `probelauf.py mouser` die Trefferlisten
-   für die Standard-Begriffe zeigt und Lukas das Modell bestätigt hat. Danach die Schritte 1
-   bis 7 aus §6d, jeder mit Tests und Prüfung im Browser. Schritt 1 (Grundgerüst „Vorschlag“)
-   braucht weder Mouser noch Modell und könnte schon vorher beginnen, wenn Lukas das möchte.
-2. **Rückmeldung von Lukas zu 0.7.0 einarbeiten,** sobald er die Knöpfe und den Papierkorb
-   an seinem Lager benutzt hat.
+   **Als Nächstes, nach Absprache mit Lukas:** Schritt 2 (Mouser), sobald der Schlüssel
+   freigegeben ist und `probelauf.py mouser` Trefferlisten zeigt. Bis dahin lässt sich
+   Schritt 3 (Suchbegriffe durch die KI) vorziehen, wenn Lukas das Modell bestätigt hat.
+   Vor Schritt 2 klären: Bleibt die Herkunft beim gespeicherten Bauteil (KONZEPT.md §6d,
+   „Offen für Schritt 2“)? Fertig ist jeder Schritt mit Tests, Prüfung im Browser und Doku.
+2. **Rückmeldung von Lukas zu 0.7.0 und 0.8.0 einarbeiten,** sobald er die Knöpfe, den
+   Papierkorb und „Automatisch ergänzen“ an seinem Lager benutzt hat.
 3. **Nur falls Lukas es möchte: endgültig löschen im Programm** (einzelne Einträge oder den
    ganzen Papierkorb). Nicht umkehrbar: nur mit ausdrücklicher Bestätigung auf einer eigenen
    Seite. Bis dahin geht es bewusst nur im Explorer (D22).
@@ -475,7 +551,8 @@ man erkennt, dass er fertig ist.
 - **Automatisch ergänzen** (KONZEPT.md §6d): Woher kommt die Websuche für die Recherche
   (eigene Suchmaschine SearXNG oder Such-Schnittstelle mit Schlüssel)? KiCad-Dateien von LCSC
   (`easyeda2kicad`, nur privat) nutzen? Modell: Empfehlung nach dem Vergleich ist Muse Glimmer
-  mit Denkstufe „niedrig“ (KONZEPT.md §6d), einverstanden?
+  mit Denkstufe „niedrig“ (KONZEPT.md §6d), einverstanden? Soll die Herkunft (z. B.
+  Datenblatt-Link, Mouser-Nummer) beim gespeicherten Bauteil in der `part.yaml` bleiben?
 - Soll das Gerät im Router nach dem Dienst heißen (z. B. `lager`), bevor viele Etiketten
   gedruckt werden?
 - Soll der Server dauerhaft im WLAN lauschen (`server.host: "0.0.0.0"` in der `config.yaml`)?

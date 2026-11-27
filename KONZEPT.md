@@ -1,6 +1,6 @@
 # Konzept — Bauteile-Lagersystem ("Lager")
 
-Stand: 2026-11-27 · Version 0.7.0 · Status: Phase 0.1, 0.2, 1, 2 und 3a (QR-Etiketten) umgesetzt, dazu Verwalten mit Papierkorb; von Lukas am Handy geprüft (Seiten, PDF öffnen, QR-Code lesen) und am PC (Umbenennen, Löschen) · Als Nächstes: Automatisch ergänzen (§6d, geplant; Modelle getestet, Mouser-Schlüssel wartet auf Freigabe) · Stand je Phase: §10
+Stand: 2026-11-27 · Version 0.8.0 · Status: Phase 0.1, 0.2, 1, 2 und 3a (QR-Etiketten) umgesetzt, dazu Verwalten mit Papierkorb und das Grundgerüst „Vorschlag“ für Automatisch ergänzen; von Lukas am Handy geprüft (Seiten, PDF öffnen, QR-Code lesen) und am PC (Umbenennen, Löschen) · Als Nächstes: Automatisch ergänzen, Schritt 2 oder 3 (§6d; Mouser-Schlüssel wartet auf Freigabe) · Stand je Phase: §10
 
 ## 1. Ziel
 
@@ -45,6 +45,10 @@ Das System ist in erster Linie für die **private Nutzung** gedacht.
 ├── _vorlage/                # ignoriert vom Scanner (Unterstrich-/Punkt-Präfix)
 │   └── part.yaml
 ├── _papierkorb/             # Gelöschtes, je Löschen ein Zeit-Ordner (§6b, D19, D22)
+├── _entwuerfe/              # offene Vorschläge, je Vorschlag ein Zeit-Ordner (§6d, D26)
+│   └── <Zeitpunkt>/
+│       ├── draft.yaml       # vorgeschlagene Werte, jeder mit Herkunft
+│       └── …                # gefundene Dateien (ab Schritt 2)
 └── <kategorie>/             # Ebene 1 = Kategorie (Ordnername = id)
     └── <Unterkategorie>/    # optional, bis zu 3 Ebenen; Ordnername = Anzeigename
         └── <Bezeichnung>/   # Bauteil-Ordner, Name = Bezeichnung des Bauteils
@@ -292,10 +296,10 @@ normale Kamera-App des Handys öffnet sie; eine eigene App ist nicht nötig (D8)
   Rechnen in Millimetern). Das Druckbild ist HTML mit festen mm-Maßen; ein PDF wird nicht
   erzeugt, der Browser kann aber als PDF drucken.
 
-## 6d. Automatisch ergänzen (geplant, D25)
+## 6d. Automatisch ergänzen (D25; Schritt 1 umgesetzt in 0.8.0)
 
-Von Lukas am 2026-11-26 bestätigter Plan. Gebaut ist bisher nur das Probelauf-Skript
-`tools/probelauf.py`; Ergebnisse siehe unten.
+Von Lukas am 2026-11-26 bestätigter Plan. Umgesetzt sind der Probelauf (Schritt 0, Ergebnisse
+unten) und das Grundgerüst „Vorschlag“ (Schritt 1, siehe „Stand“). Gesucht wird noch nichts.
 
 **Ziel.** Beim Anlegen eines Bauteils gibt Lukas einen Namen, ein Foto oder einen Screenshot
 (z. B. einer Shop-Seite) ein und wählt „Automatisch ergänzen“. Das Programm sucht Datenblatt,
@@ -333,8 +337,9 @@ speichert. Dieselbe Funktion soll später ein KI-Assistent anstoßen können.
 **Umsetzung in dieser Reihenfolge**
 
 0. Probelauf ohne Bauen: Mouser mit echten, auch ungenauen Eingaben; Tempo und Güte der
-   lokalen Modelle (`tools/probelauf.py`).
+   lokalen Modelle (`tools/probelauf.py`). Modelle getestet; Mouser wartet auf den Schlüssel.
 1. Grundgerüst „Vorschlag“: Entwürfe, Seite „Vorschlag prüfen“, Speichern. Eingabe: Name.
+   **Umgesetzt in 0.8.0**, siehe „Stand“.
 2. Mouser anbinden: Suche, Auswahlliste, Datenblatt laden, Kennwerte.
 3. Suchbegriffe durch die KI (Stufe 2).
 4. KiCad und 3D (Stufe 4).
@@ -343,6 +348,64 @@ speichert. Dieselbe Funktion soll später ein KI-Assistent anstoßen können.
    dazu der Barcode auf der Händlertüte.
 7. MCP-Server (bisher Phase 4), damit LM Studio Bionic und spätere Assistenten dieselben
    Funktionen nutzen. Auch dann gilt: Gespeichert wird nur durch Lukas.
+
+**Stand: Grundgerüst „Vorschlag“ (Schritt 1, 0.8.0, D26)**
+
+- **Ablauf (im Hintergrund, Wunsch von Lukas vom 2026-11-27):** Auf „Neues Bauteil“ (`/neu`)
+  steht oben der Kasten „Automatisch ergänzen“: Name, Bestellnummer oder Suchbegriff eingeben,
+  „Vorschlag erstellen“. Die Seite kommt sofort zurück, mit leerem Feld und Fokus darauf: Viele
+  Bauteile lassen sich hintereinander eingeben. Ein Arbeiter im Server bereitet die Vorschläge
+  einen nach dem anderen vor (Stand „wartet“ → „in Arbeit“ → „bereit zum Prüfen“, oder
+  „Fehler beim Vorbereiten“). Die Liste „Vorschläge“ auf `/neu` zeigt den Stand und lädt sich
+  nach, solange einer offen ist; am Plus oben steht die Zahl der fertigen Vorschläge, im
+  Fußbereich ein Link.
+- **Prüfen:** Ein fertiger Vorschlag öffnet die Seite „Vorschlag prüfen“ (`/vorschlag/<ID>`)
+  mit denselben Feldern wie „Von Hand anlegen“, vorbelegt mit dem Vorschlag. Unter jedem
+  vorgeschlagenen Wert steht seine Herkunft („aus deiner Eingabe“, später „von Mouser“ oder
+  „aus einer Quelle im Netz“ mit Link und Beleg). Ändert Lukas einen Wert, verschwindet die
+  Herkunft dort. „Bauteil anlegen“ legt das Bauteil an, räumt gefundene Dateien hinein,
+  entfernt den Vorschlag und führt auf die Startseite („… ist angelegt“, Link zum Bauteil;
+  die Zahl am Plus zeigt, wie viele Vorschläge noch bereitliegen).
+  „Vorschlag verwerfen“ schiebt ihn in den Papierkorb; von dort lässt er sich zurückholen.
+  Solange ein Vorschlag nicht fertig ist, zeigt die Seite nur den Stand und lädt sich alle drei
+  Sekunden neu; speichern geht dann nicht. Nach einem Fehler lässt er sich von Hand ergänzen.
+- **Arbeiter** (`server/worker.py`): ein Thread je Server, gestartet und beendet mit dem
+  Server. Ein neuer Vorschlag weckt ihn; zusätzlich schaut er alle 30 Sekunden nach (nach einem
+  Neustart, oder wenn ein anderes Programm einen Vorschlag angelegt hat). Eine Sperrdatei
+  `.in-arbeit` im Ordner des Vorschlags verhindert, dass zwei Prozesse ihn zugleich
+  bearbeiten; ist sie älter als 30 Minuten, gilt die Bearbeitung als abgebrochen und beginnt
+  neu. Die Stufen sind eine Liste (`drafts.STAGES`); Mouser, KiCad und KI kommen dort dazu.
+  Die CLI (`lager draft new`) bereitet sofort vor und wartet darauf.
+- **Bisher schlägt das Programm nur die Bezeichnung aus der Eingabe vor** (Stufe 1, nur
+  Leerzeichen aufgeräumt). Seite und Eingabekasten sagen das ausdrücklich.
+- **Datei `draft.yaml`** (Schema 1, sprachneutral, Beispiel):
+
+  ```yaml
+  schema: 1
+  id: 20261127T091500Z          # Name des Ordners, Zeitpunkt in UTC
+  created: '2026-11-27T09:15:00Z'
+  updated: '2026-11-27T09:15:01Z'
+  status: ready                  # queued | running | ready | failed
+  error: ''                      # Grund bei failed
+  input: irlz44 mosfet to220     # was eingegeben wurde
+  fields:                        # part, category, subcategory, name, manufacturer, aliases, tags, notes
+    part:
+      value: irlz44 mosfet to220
+      source: {kind: input}      # input | api | library | web, dazu name, url, quote
+    name:
+      value: ''
+      source: {}                 # leerer Wert: keine Herkunft
+  files: []                      # [{path, source}] für Dateien im Ordner des Vorschlags
+  ```
+
+  Menge und Lagerfach stehen bewusst nicht darin: Die trägt nur Lukas ein. Beim Lesen wird
+  bereinigt: unbekannte Herkunftsarten zählen nicht, ein Link wird nur bei `http(s)` zum Link.
+- **Zugänge:** Seite (siehe oben), CLI `lager draft new | list | show | save | discard` und API
+  `GET/POST /api/v1/drafts`, `GET/DELETE /api/v1/drafts/{id}`. Speichern gibt es nur auf der
+  Seite und in der CLI, bewusst nicht über die API (Grundsatz 1, D26).
+- **Offen für Schritt 2:** ob die Herkunft beim gespeicherten Bauteil erhalten bleibt (z. B.
+  Datenblatt-Link und Mouser-Nummer in der `part.yaml`). Heute verschwindet `draft.yaml` beim
+  Speichern.
 
 **Einstellungen** in der lokalen `config.yaml` (Vorlage: `config.example.yaml`):
 `mouser.api_key` (nie in Git), `llm.base_url` (LM Studio, bei Lukas Port 1235), `llm.model`.
@@ -624,7 +687,7 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 | 3a | QR-Etiketten: erzeugen, auf A4 drucken, mit dem Handy lesen; Adresse als Name statt IP | ✅ Seite `/etiketten`, QR-Code auf der Bauteilseite, `lager qr url`, `lager qr make` (§6c). Von Lukas geprüft (2026-11-13): Das Handy liest den Code und öffnet das Bauteil |
 | – | Verwalten (Wünsche aus dem ersten größeren Test, 2026-11-14) | ✅ Bezeichnungen mit Leerzeichen und Kleinbuchstaben, Unterkategorien, Umbenennen, Verschieben, Bauteile und Dateien löschen (Papierkorb), Hochladen gleich nach der Auswahl mit Fortschritt, Ordner-Auswahlfenster für den Lager-Ordner (§6b, §7) |
 | – | Rückmeldung zu 0.6.0 (2026-11-26) | ✅ Bauteilseite mit drei eigenen Knöpfen (Bearbeiten, Umbenennen, Löschen) und eigenen Seiten, Papierkorb als Seite mit Wiederherstellen, `config.yaml` nur noch lokal mit Vorlage `config.example.yaml` (0.7.0) |
-| A | Automatisch ergänzen: Vorschlag aus Mouser, KiCad-Bibliothek und lokaler KI-Recherche, Prüfseite, Foto als Eingabe (§6d) | geplant (2026-11-26); Schritt 0: Modelle getestet (2026-11-27), Mouser-Schlüssel noch nicht freigegeben |
+| A | Automatisch ergänzen: Vorschlag aus Mouser, KiCad-Bibliothek und lokaler KI-Recherche, Prüfseite, Foto als Eingabe (§6d) | in Arbeit: Schritt 0 Modelle getestet (2026-11-27), Mouser-Schlüssel noch nicht freigegeben; Schritt 1 Grundgerüst „Vorschlag“ ✅ (0.8.0) |
 | 3b | HTTPS mit Kamera-Scanner in der Seite und Startbildschirm (PWA) | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | geht in Schritt 7 von §6d auf |
 | 5 | Mengen ein- und ausbuchen mit Verlauf (`movements`) | offen |
@@ -689,3 +752,7 @@ Symbole erscheinen direkt in KiCad.
 | D23 | 2026-11-26 | `config.yaml` steht nicht mehr in Git; eingecheckt ist die Vorlage `config.example.yaml`, aus der das Programm eine fehlende `config.yaml` beim ersten Speichern anlegt. Lukas: Die bisherige Konfiguration war nur zum Testen und enthält nichts Vertrauliches (s. §4) |
 | D24 | 2026-11-26 | Bearbeiten, Umbenennen und Löschen sind drei eigene Knöpfe auf der Bauteilseite mit je eigener Seite; Löschen fragt auf einer eigenen Seite nach (statt Häkchen). Wunsch von Lukas (s. §6b) |
 | D25 | 2026-11-26 | Plan „Automatisch ergänzen“: Vorschlag statt Eintrag; Mouser liefert die Daten, eine lokale KI (LM Studio) übersetzt nur Suchbegriffe und recherchiert die Lücken; jeder KI-Wert braucht einen Beleg, den das Programm prüft; Speichern nur durch Lukas; Meta Muse (Cloud) nicht, LM Studio Bionic optional über MCP. Von Lukas bestätigt (s. §6d) |
+| D26 | 2026-11-27 | Grundgerüst „Vorschlag“: ein Vorschlag ist ein Ordner `_entwuerfe/<Zeitpunkt>/` mit `draft.yaml` (Werte mit Herkunft) und gefundenen Dateien; Zeitpunkt-Namen wie im Papierkorb. Verwerfen schiebt ihn in den Papierkorb (zurückholbar, wie D22), Speichern legt das Bauteil an und entfernt `draft.yaml`. Speichern nur auf der Seite und in der CLI, nicht über die API (D25: gespeichert wird nur von Lukas). Menge und Lagerfach gehören nicht in einen Vorschlag (s. §6d) |
+| D27 | 2026-11-27 | Vorschläge werden im Hintergrund vorbereitet: Anlegen kehrt sofort zurück, ein Arbeiter-Thread im Server bearbeitet einen nach dem anderen (Stand queued/running/ready/failed in `draft.yaml`, Sperrdatei gegen doppelte Bearbeitung), die Liste auf `/neu` zeigt den Stand und lädt nach. Wunsch von Lukas, damit er viele Bauteile hintereinander eingeben kann (s. §6d) |
+| D28 | 2026-11-27 | `style.css` und `app.js` mit `Cache-Control: no-cache` und Inhaltskennung in der Adresse (`?v=…`); Symbole tragen Größe und Strich auch am SVG. Anlass: Lukas' Browser nutzte nach dem Update auf 0.7.0 die alte `style.css`, die neuen Knöpfe sahen kaputt aus |
+| D29 | 2026-11-27 | Nach dem Anlegen eines Bauteils (von Hand oder aus einem Vorschlag) und nach dem Wiederherstellen eines ganzen Bauteils aus dem Papierkorb geht es auf die Startseite, mit Meldung und Link „Zum Bauteil“. Eine wiederhergestellte Datei zeigt weiter die Seite ihres Bauteils, ein Vorschlag seine Prüfseite. Wunsch von Lukas |

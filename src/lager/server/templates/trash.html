@@ -25,7 +25,7 @@
         <div class="trash-main">
           <span class="part">{{ e.name }}</span>
           <span class="meta">
-            {% if e.kind == "part" %}Bauteil{% else %}Datei von {{ e.part }}{% endif %}
+            {% if e.kind == "part" %}Bauteil{% elif e.kind == "draft" %}Vorschlag{% else %}Datei von {{ e.part }}{% endif %}
             · gelöscht am {{ e.deleted_at | ortszeit }}
           </span>
           <span class="meta">Alter Platz: <span class="path">{{ e.path }}</span></span>

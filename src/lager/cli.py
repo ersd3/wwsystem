@@ -19,6 +19,7 @@ import typer
 from . import __version__, categories as catmod
 from . import db as dbmod
 from . import dialogs as dialogmod
+from . import drafts as draftmod
 from . import files as filesmod
 from . import indexer
 from . import labels as labelmod
@@ -52,6 +53,10 @@ app.add_typer(index_app, name="index")
 app.add_typer(qr_app, name="qr")
 trash_app = typer.Typer(help="Papierkorb des Lagers: Gelöschtes ansehen und zurückholen.")
 app.add_typer(trash_app, name="trash")
+draft_app = typer.Typer(
+    help="Vorschläge für neue Bauteile („Automatisch ergänzen“): anlegen, prüfen, speichern."
+)
+app.add_typer(draft_app, name="draft")
 
 
 def force_utf8_output() -> None:
@@ -742,7 +747,7 @@ def trash_list(as_json: bool = typer.Option(False, "--json")) -> None:
         return
     typer.echo(f"Papierkorb: {folder}")
     for entry in found:
-        what = "Bauteil" if entry.kind == "part" else f"Datei von {entry.part}"
+        what = {"part": "Bauteil", "draft": "Vorschlag"}.get(entry.kind, f"Datei von {entry.part}")
         typer.echo(
             f"{entry.id}  {entry.name}  ({what}, gelöscht am "
             f"{trashmod.local_time(entry.deleted_at)})"
@@ -782,6 +787,184 @@ def trash_open(as_json: bool = typer.Option(False, "--json")) -> None:
     except dialogmod.DialogUnavailable as e:
         _fail(str(e))
     _print({"geoeffnet": str(folder)}, as_json)
+
+
+# ---------------------------------------------------------------- draft
+
+# Anzeigenamen der Felder eines Vorschlags (wie auf der Seite „Vorschlag prüfen“).
+DRAFT_LABELS = {
+    "part": "Bezeichnung",
+    "category": "Kategorie",
+    "subcategory": "Unterkategorie",
+    "name": "Beschreibung",
+    "manufacturer": "Hersteller",
+    "aliases": "Aliase",
+    "tags": "Tags",
+    "notes": "Notizen",
+}
+
+
+def _load_draft(root: Path, draft_id: str) -> draftmod.Draft:
+    try:
+        return draftmod.load(root, draft_id)
+    except ValueError as e:
+        _fail(str(e))
+
+
+def _echo_draft(draft: draftmod.Draft) -> None:
+    """Ein Vorschlag als Text: jeder Wert mit seiner Herkunft, leere Werte ausgelassen."""
+    typer.echo(
+        f"Vorschlag {draft.id} (Eingabe: „{draft.input}“, erstellt am "
+        f"{trashmod.local_time(draft.created)})"
+    )
+    typer.echo(f"  Stand: {draftmod.STATUS_LABELS[draft.status]}")
+    if draft.error:
+        typer.echo(f"  Fehler: {draft.error}")
+    for name in draftmod.FIELDS:
+        value = draft.value(name)
+        shown = ", ".join(value) if isinstance(value, list) else value
+        if not shown:
+            continue
+        source = draftmod.describe_source(draft.source(name))
+        origin = f"  [{source['text']}{', ' + source['url'] if source['url'] else ''}]" if source else ""
+        typer.echo(f"  {DRAFT_LABELS[name]}: {shown}{origin}")
+        if source.get("quote"):
+            typer.echo(f"      Beleg: „{source['quote']}“")
+    for item in draft.files:
+        source = draftmod.describe_source(item.source)
+        origin = f"  [{source['text']}]" if source else ""
+        typer.echo(f"  Datei: {item.path} ({item.size} B){origin}")
+
+
+@draft_app.command("new")
+def draft_new(
+    eingabe: str = typer.Argument(
+        ..., help='Name, Bestellnummer oder Suchbegriff, z. B. "irlz44 mosfet to220"'
+    ),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Legt einen Vorschlag an und bereitet ihn gleich vor. Gespeichert wird erst mit `lager draft save`.
+
+    Anders als auf der Seite (dort im Hintergrund) wartet die CLI, bis er fertig ist.
+    """
+    root = _require_root()
+    try:
+        draft = draftmod.create(root, eingabe)
+        draftmod.process(root, draft.id, load_config())  # False: ein laufender Server war schneller
+        draft = draftmod.load(root, draft.id)
+    except ValueError as e:
+        _fail(str(e))
+    if as_json:
+        _print(draft.as_dict(root), True)
+        return
+    _echo_draft(draft)
+    typer.echo(f"Prüfen und speichern: lager draft save {draft.id} --category <Kategorie-ID>")
+
+
+@draft_app.command("list")
+def draft_list(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Zeigt die offenen Vorschläge, den neuesten zuerst."""
+    root = _require_root()
+    found = draftmod.entries(root)
+    if as_json:
+        _print(
+            {
+                "ordner": str(draftmod.drafts_dir(root)),
+                "anzahl": len(found),
+                "eintraege": [draft.as_dict(root) for draft in found],
+            },
+            True,
+        )
+        return
+    if not found:
+        typer.echo("Keine offenen Vorschläge.")
+        return
+    for draft in found:
+        typer.echo(
+            f"{draft.id}  {draft.input}  ({draftmod.STATUS_LABELS[draft.status]}, "
+            f"erstellt am {trashmod.local_time(draft.created)})"
+        )
+    typer.echo("Ansehen: lager draft show <ID>")
+
+
+@draft_app.command("show")
+def draft_show(
+    entwurf: str = typer.Argument(..., help="ID aus `lager draft list`, z. B. 20261127T091500Z"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Zeigt einen Vorschlag: jeden Wert mit seiner Herkunft."""
+    root = _require_root()
+    draft = _load_draft(root, entwurf)
+    if as_json:
+        _print(draft.as_dict(root), True)
+    else:
+        _echo_draft(draft)
+
+
+@draft_app.command("save")
+def draft_save(
+    entwurf: str = typer.Argument(..., help="ID aus `lager draft list`"),
+    category: str = typer.Option("", "--category", "-c", help="Kategorie-ID; ohne Angabe die vorgeschlagene"),
+    subcategory: Optional[str] = typer.Option(None, "--subcategory", "-s", help="Unterkategorie"),
+    part: Optional[str] = typer.Option(None, "--part", "-p", help="Bezeichnung; ohne Angabe die vorgeschlagene"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Beschreibung"),
+    manufacturer: Optional[str] = typer.Option(None, "--manufacturer", "-m", help="Hersteller"),
+    quantity: int = typer.Option(0, "--quantity", "-q", help="Anfangsmenge"),
+    location: str = typer.Option("", "--location", "-l", help="Lagerfach"),
+    tags: Optional[str] = typer.Option(None, "--tags", help="Kommagetrennt"),
+    aliases: Optional[str] = typer.Option(None, "--aliases", help="Kommagetrennt"),
+    notes: Optional[str] = typer.Option(None, "--notes", help="Notizen"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Legt aus einem Vorschlag das Bauteil an. Nicht angegebene Werte kommen aus dem Vorschlag."""
+    root = _require_root()
+    draft = _load_draft(root, entwurf)
+
+    def chosen(value: Optional[str], field: str):
+        return draft.value(field) if value is None else value
+
+    def chosen_list(value: Optional[str], field: str) -> list:
+        if value is None:
+            return draft.value(field)
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    category = category or draft.value("category")
+    if not category:
+        _fail("Bitte eine Kategorie angeben: --category <Kategorie-ID> (siehe lager category list).")
+    data = {
+        "name": chosen(name, "name"),
+        "manufacturer": chosen(manufacturer, "manufacturer"),
+        "quantity": quantity,
+        "location": location,
+        "tags": chosen_list(tags, "tags"),
+        "aliases": chosen_list(aliases, "aliases"),
+        "notes": chosen(notes, "notes"),
+    }
+    try:
+        part_dir, errors = draftmod.save(
+            root, entwurf, category, chosen(part, "part"), data,
+            chosen(subcategory, "subcategory"), load_config(),
+        )
+    except ValueError as e:
+        _fail(str(e))
+    _refresh_index(root)
+    for error in errors:
+        typer.echo(f"Warnung: nicht übernommen: {error}", err=True)
+    _print({"teil": str(part_dir), "fehler": errors}, as_json)
+
+
+@draft_app.command("discard")
+def draft_discard(
+    entwurf: str = typer.Argument(..., help="ID aus `lager draft list`"),
+    as_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """Verwirft einen Vorschlag: Er wandert in den Papierkorb des Lagers."""
+    root = _require_root()
+    try:
+        trashed = draftmod.discard(root, entwurf)
+    except ValueError as e:
+        _fail(str(e))
+    _print({"verworfen": entwurf, "papierkorb": str(trashed)}, as_json)
 
 
 # ---------------------------------------------------------------- serve

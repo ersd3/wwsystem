@@ -1,0 +1,26 @@
+{# Liste der Vorschläge mit ihrem Stand, auf /neu und zum Nachladen unter /neu/vorschlaege.
+   Solange einer wartet oder in Arbeit ist (data-pending), lädt static/app.js die Liste alle
+   paar Sekunden neu. Ohne JavaScript hilft der Link „Aktualisieren“. #}
+{% set offen = entwuerfe | selectattr("status", "in", ["queued", "running"]) | list %}
+<div id="vorschlaege" class="draft-list" data-poll="/neu/vorschlaege"{% if offen %} data-pending="1"{% endif %}>
+  {% if entwuerfe %}
+  <h3>Vorschläge</h3>
+  <ul class="drafts">
+    {% for d in entwuerfe %}
+    <li class="draft-item">
+      <a class="draft-link" href="/vorschlag/{{ d.id }}">
+        <span class="draft-name">{{ d.input }}</span>
+        <span class="meta">erstellt am {{ d.created | ortszeit }}</span>
+      </a>
+      <span class="status status-{{ d.status }}">{{ status_label(d.status) }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if offen %}
+  <p class="hint">
+    {{ offen | length }} {{ "Vorschlag wird" if offen | length == 1 else "Vorschläge werden" }}
+    vorbereitet. Die Liste aktualisiert sich selbst. <a class="nojs" href="/neu#vorschlaege">Aktualisieren</a>
+  </p>
+  {% endif %}
+  {% endif %}
+</div>

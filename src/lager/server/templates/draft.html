@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Vorschlag prüfen – Lager{% endblock %}
+{% block head %}
+  {# Solange der Vorschlag vorbereitet wird, lädt sich die Seite alle 3 Sekunden neu. #}
+  {% if entwurf and not entwurf.reviewable %}<meta http-equiv="refresh" content="3">{% endif %}
+{% endblock %}
+{% block main %}
+  {% import "_icons.html" as icons %}
+  {% from "_source.html" import herkunft as zeige_herkunft %}
+  <article class="detail">
+    <h1>Vorschlag prüfen</h1>
+    {% if entwurf %}
+    <p class="lead-small">
+      Eingabe: „{{ entwurf.input }}“ · erstellt am {{ entwurf.created | ortszeit }}
+    </p>
+
+    {% if not entwurf.reviewable %}
+    <div class="confirm" role="status">
+      <p>
+        <span class="status status-{{ entwurf.status }}">{{ status_label(entwurf.status) }}</span>
+      </p>
+      <p>
+        Der Vorschlag wird im Hintergrund vorbereitet. Diese Seite aktualisiert sich selbst,
+        sobald er fertig ist. Du kannst sie auch verlassen: Fertige Vorschläge stehen unter
+        <a href="/neu#vorschlaege">Neues Bauteil</a>.
+      </p>
+    </div>
+    {% if not schreibschutz and entwurf.status == "queued" %}
+    <form action="/vorschlag/{{ entwurf.id }}/verwerfen" method="post" class="discard">
+      <button type="submit" class="quiet with-icon">{{ icons.trash() }}<span>Vorschlag verwerfen</span></button>
+      <p class="hint">Er wandert in den Papierkorb des Lagers und lässt sich von dort zurückholen.</p>
+    </form>
+    {% endif %}
+    {% else %}
+
+    {% if entwurf.status == "failed" %}
+    <p class="notice" role="alert">
+      Beim Vorbereiten ist ein Fehler aufgetreten: {{ entwurf.error }}.
+      Du kannst die Werte trotzdem von Hand ergänzen und das Bauteil anlegen.
+    </p>
+    {% endif %}
+    <div class="confirm">
+      <p>
+        Noch ist nichts gespeichert. Prüfe und ergänze die Werte, dann „Bauteil anlegen“.
+        Unter einem vorgeschlagenen Wert steht, woher er kommt.
+      </p>
+      <p class="hint">
+        Das Programm sucht noch nicht selbst. Vorgeschlagen ist bisher nur die Bezeichnung aus
+        deiner Eingabe; Mouser und die KI-Recherche folgen in den nächsten Schritten.
+      </p>
+    </div>
+
+    {% if vergeben %}
+    <p class="notice" role="status">
+      Ein Bauteil mit der Bezeichnung
+      <a href="/p/{{ vergeben.part | urlencode }}">{{ vergeben.part }}</a> gibt es schon.
+      Bitte eine andere Bezeichnung wählen oder den Vorschlag verwerfen.
+    </p>
+    {% endif %}
+
+    {% if entwurf.files %}
+    <h2>Dateien im Vorschlag</h2>
+    <ul class="drafts">
+      {% for f in entwurf.files %}
+      <li>
+        <span><span class="path">{{ f.path }}</span> <span class="meta">{{ f.size | filesize }}</span></span>
+        {{ zeige_herkunft(describe_source(f.source)) }}
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="hint">Sie kommen beim Anlegen in den Ordner des Bauteils.</p>
+    {% endif %}
+
+    {% if schreibschutz %}
+    <p class="empty">Der Schreibschutz ist aktiv. <a href="/anmelden">Anmelden</a>, um den Vorschlag zu speichern.</p>
+    {% else %}
+    <h2>Werte</h2>
+    <form action="/vorschlag/{{ entwurf.id }}" method="post" enctype="multipart/form-data" class="stack">
+      {% include "_part_fields.html" %}
+      <button type="submit">Bauteil anlegen</button>
+    </form>
+    <form action="/vorschlag/{{ entwurf.id }}/verwerfen" method="post" class="discard">
+      <button type="submit" class="quiet with-icon">{{ icons.trash() }}<span>Vorschlag verwerfen</span></button>
+      <p class="hint">Er wandert in den Papierkorb des Lagers und lässt sich von dort zurückholen.</p>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% else %}
+    <p class="empty"><a href="/neu">Zur Seite „Neues Bauteil“</a></p>
+    {% endif %}
+  </article>
+{% endblock %}

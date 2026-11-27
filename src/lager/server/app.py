@@ -3,11 +3,12 @@
 Der Server ist nur ein weiterer Client des Kerns: Er nutzt dieselben
 Funktionen wie die CLI (indexer, search, parts, files) und liefert dieselben Daten.
 """
+import hashlib
 import mimetypes
 import os
 import secrets
 import sqlite3
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Iterator, List, Optional, Sequence, Tuple, Union
 from urllib.parse import quote, urlencode
@@ -15,13 +16,16 @@ from urllib.parse import quote, urlencode
 from fastapi import (
     APIRouter, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile,
 )
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import (
+    FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import __version__, db, indexer
 from .. import categories as catmod
 from .. import dialogs as dialogmod
+from .. import drafts as draftmod
 from .. import files as filesmod
 from .. import labels as labelmod
 from .. import parts as partmod
@@ -30,9 +34,11 @@ from .. import search as searchmod
 from .. import trash as trashmod
 from ..config import CONFIG_PATH, load_config, set_lager_root, set_public_url
 from .schemas import (
-    Category, FileDeleteResult, Health, IndexStatus, NewCategory, NewPart, Part, PartChanges,
-    PartDeleteResult, RebuildResult, SearchResult, TrashList, TrashRestoreResult, UploadResult,
+    Category, Draft, DraftDiscardResult, DraftList, FileDeleteResult, Health, IndexStatus,
+    NewCategory, NewDraft, NewPart, Part, PartChanges, PartDeleteResult, RebuildResult,
+    SearchResult, TrashList, TrashRestoreResult, UploadResult,
 )
+from .worker import DraftWorker
 
 HERE = Path(__file__).resolve().parent
 
@@ -69,7 +75,44 @@ def _filesize(size: int) -> str:
     return f"{value:.1f} GB".replace(".", ",")
 
 
+class RevalidatedStaticFiles(StaticFiles):
+    """style.css und app.js: Der Browser fragt bei jedem Laden nach, ob sie sich geändert haben.
+
+    Ohne Cache-Control darf ein Browser eine alte Fassung eine Weile weiterverwenden, ohne
+    nachzufragen. Nach dem Update auf 0.7.0 hatte Lukas' Browser so noch die style.css von
+    0.6.0: Die neuen Symbole wurden riesig und schwarz, die Knöpfe zerfielen. Die Nachfrage
+    kostet wenig; ist die Datei gleich, antwortet der Server nur mit „unverändert“ (304).
+    """
+
+    async def get_response(self, path: str, scope) -> Response:
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+_static_versions: dict = {}
+
+
+def static_version(name: str) -> str:
+    """Kurze Kennung des Inhalts einer statischen Datei für ihre Adresse (style.css?v=…).
+
+    Ändert sich die Datei, ändert sich die Adresse, und jeder Browser lädt sie neu.
+    """
+    path = HERE / "static" / name
+    try:
+        stat = path.stat()
+    except OSError:
+        return __version__
+    key = (name, stat.st_mtime_ns, stat.st_size)
+    if key not in _static_versions:
+        _static_versions[key] = hashlib.sha256(path.read_bytes()).hexdigest()[:10]
+    return _static_versions[key]
+
+
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+templates.env.globals["static_version"] = static_version
+
+
 def _mm(value: float) -> str:
     """Maß für CSS: zwei Nachkommastellen, Punkt als Dezimalzeichen, ohne Endnullen."""
     return f"{value:.2f}".rstrip("0").rstrip(".")
@@ -80,6 +123,8 @@ templates.env.filters["mm"] = _mm
 templates.env.filters["mm_de"] = labelmod.format_mm
 templates.env.filters["ortszeit"] = trashmod.local_time
 templates.env.globals["kind_label"] = lambda kind: KIND_LABELS.get(kind, kind)
+templates.env.globals["describe_source"] = draftmod.describe_source
+templates.env.globals["status_label"] = lambda status: draftmod.STATUS_LABELS.get(status, status)
 
 
 # ------------------------------------------------------------------ Helfer
@@ -226,6 +271,58 @@ def _create_part(
     return partmod.create_part(root, category, part, data, subcategory)
 
 
+def part_form(
+    bezeichnung: str = Form(""),
+    kategorie: str = Form(""),
+    neue_kategorie: str = Form(""),
+    unterkategorie: str = Form(""),
+    neue_unterkategorie: str = Form(""),
+    name: str = Form(""),
+    hersteller: str = Form(""),
+    lagerfach: str = Form(""),
+    menge: str = Form("0"),
+    tags: str = Form(""),
+    aliase: str = Form(""),
+    notizen: str = Form(""),
+) -> dict:
+    """Die Felder des Formulars „Neues Bauteil“ (auch auf der Seite „Vorschlag prüfen“)."""
+    return {
+        "bezeichnung": bezeichnung, "kategorie": kategorie, "neue_kategorie": neue_kategorie,
+        "unterkategorie": unterkategorie, "neue_unterkategorie": neue_unterkategorie,
+        "name": name, "hersteller": hersteller, "lagerfach": lagerfach, "menge": menge,
+        "tags": tags, "aliase": aliase, "notizen": notizen,
+    }
+
+
+def _create_from_form(request: Request, form: dict) -> Path:
+    """Legt ein Bauteil aus den Formularfeldern an (siehe part_form). Fehler als ValueError."""
+    try:
+        quantity = int(form["menge"].strip() or "0")
+    except ValueError:
+        raise ValueError("Die Menge muss eine ganze Zahl sein.") from None
+    if not form["bezeichnung"].strip():
+        raise ValueError("Bitte eine Bezeichnung eintragen.")
+    # Bei einer neu eingetippten Kategorie kann die Auswahl darunter nicht passen.
+    new_cat = bool(form["neue_kategorie"].strip())
+    effective = catmod.normalize_id(form["neue_kategorie"]) if new_cat else form["kategorie"]
+    subcategory = _chosen_subcategory(
+        effective, form["unterkategorie"], form["neue_unterkategorie"], lenient=new_cat
+    )
+    return _create_part(
+        request,
+        form["bezeichnung"],
+        form["kategorie"],
+        {
+            "name": form["name"].strip(), "manufacturer": form["hersteller"].strip(),
+            "location": form["lagerfach"].strip(), "quantity": quantity,
+            "tags": _split_list(form["tags"]), "aliases": _split_list(form["aliase"]),
+            "notes": form["notizen"].strip(),
+        },
+        form["neue_kategorie"],
+        subcategory,
+    )
+
+
 def _save_uploads(
     request: Request, part_dir: Path, uploads: Optional[Sequence[Union[UploadFile, str]]]
 ) -> Tuple[List[str], List[str]]:
@@ -289,6 +386,7 @@ def switch_root(app: FastAPI, raw_path: str, create: bool = False) -> Path:
     app.state.last_rebuild = indexer.rebuild(target, app.state.cfg)
     set_lager_root(str(target), app.state.config_path)
     app.state.root = target
+    app.state.worker.wake()  # wartende Vorschläge im neuen Lager vorbereiten
     return target
 
 
@@ -473,6 +571,67 @@ def api_trash_restore(request: Request, entry_id: str) -> dict:
     }
 
 
+@api.get(
+    "/drafts",
+    response_model=DraftList,
+    summary="Offene Vorschläge („Automatisch ergänzen“), der neueste zuerst",
+)
+def api_drafts(request: Request) -> dict:
+    root = request.app.state.root
+    found = [draft.as_dict(root) for draft in draftmod.entries(root)]
+    return {"ordner": str(draftmod.drafts_dir(root)), "anzahl": len(found), "eintraege": found}
+
+
+@api.post(
+    "/drafts",
+    response_model=Draft,
+    status_code=201,
+    dependencies=[Depends(require_write)],
+    summary="Vorschlag aus einer Eingabe anlegen (Name, Bestellnummer oder Suchbegriff)",
+)
+def api_create_draft(request: Request, body: NewDraft) -> dict:
+    """Antwortet sofort mit `status: queued`; vorbereitet wird im Hintergrund. Den Stand
+    zeigt `GET /api/v1/drafts/{id}` (`ready` = bereit zum Prüfen).
+
+    Gespeichert wird ein Vorschlag nur von Lukas, auf der Seite `/vorschlag/<id>`
+    oder mit `lager draft save`. Deshalb gibt es dafür keinen API-Aufruf (KONZEPT.md D25)."""
+    root = request.app.state.root
+    try:
+        draft = draftmod.create(root, body.input)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    request.app.state.worker.wake()
+    return draft.as_dict(root)
+
+
+@api.get("/drafts/{draft_id}", response_model=Draft, summary="Ein Vorschlag mit Herkunft je Wert")
+def api_draft(request: Request, draft_id: str) -> dict:
+    root = request.app.state.root
+    try:
+        return draftmod.load(root, draft_id).as_dict(root)
+    except draftmod.DraftNotFound as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(500, str(e))
+
+
+@api.delete(
+    "/drafts/{draft_id}",
+    response_model=DraftDiscardResult,
+    dependencies=[Depends(require_write)],
+    summary="Vorschlag verwerfen (er wandert in den Papierkorb des Lagers)",
+)
+def api_discard_draft(request: Request, draft_id: str) -> dict:
+    root = request.app.state.root
+    try:
+        trashed = draftmod.discard(root, draft_id)
+    except draftmod.DraftNotFound as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"verworfen": draft_id, "papierkorb": trashed.relative_to(root).as_posix()}
+
+
 @api.get("/categories", response_model=List[Category], summary="Kategorien mit Teil-Anzahl")
 def api_categories(request: Request) -> list:
     with open_index(request) as conn:
@@ -557,6 +716,9 @@ def _page_context(request: Request, conn: sqlite3.Connection) -> dict:
         "lager_root": str(request.app.state.root),
         "papierkorb": trashmod.TRASH_DIR,
         "papierkorb_anzahl": len(trashmod.entries(request.app.state.root)),
+        "vorschlaege_bereit": sum(
+            1 for d in draftmod.entries(request.app.state.root) if d.status == "ready"
+        ),
         "version": __version__,
         "q": "",
         "kategorie": "",
@@ -565,6 +727,11 @@ def _page_context(request: Request, conn: sqlite3.Connection) -> dict:
         "erfolg_link": None,
         "warnungen": [],
     }
+
+
+def _to_start(part: str, hinweis: str) -> RedirectResponse:
+    """Weiter zur Startseite mit Meldung, z. B. nach dem Anlegen (Wunsch von Lukas, 2026-11-27)."""
+    return RedirectResponse("/?" + urlencode({"hinweis": hinweis, "teil": part}), status_code=303)
 
 
 def _search_page(
@@ -579,14 +746,19 @@ def _search_page(
     with open_index(request) as conn:
         context = _page_context(request, conn)
         hits = searchmod.search(conn, q, kategorie or None, 100)
-        gone = bool(teil) and searchmod.get_part(conn, teil) is None
+        found = searchmod.get_part(conn, teil) if teil else None
     erfolg, warnungen = _rebuild_notice(request, hinweis)
-    if hinweis == "geloescht" and gone:
+    # Gemeldet wird nur, was am Lager auch stimmt (das Bauteil ist weg bzw. da).
+    if hinweis == "geloescht" and teil and found is None:
         erfolg = (
             f"{teil} ist gelöscht und liegt jetzt im Papierkorb des Lagers. "
             "Von dort lässt es sich wiederherstellen."
         )
         context["erfolg_link"] = TRASH_LINK
+    elif hinweis in ("angelegt", "wiederhergestellt") and found is not None:
+        what = "ist angelegt" if hinweis == "angelegt" else "ist aus dem Papierkorb zurück"
+        erfolg = f"„{found['part']}“ {what}."
+        context["erfolg_link"] = {"href": f"/p/{quote(found['part'])}", "text": "Zum Bauteil"}
     context.update(
         {
             "q": q, "kategorie": kategorie, "treffer": hits, "meldung": meldung,
@@ -649,14 +821,28 @@ def _part_page(
     return templates.TemplateResponse(request, "part.html", context, status_code=status)
 
 
-def _new_page(request: Request, form: dict, meldung: str = "", status: int = 200):
+def _new_page(
+    request: Request,
+    form: dict,
+    meldung: str = "",
+    status: int = 200,
+    eingabe: str = "",
+    erfolg: str = "",
+    erfolg_link: Optional[dict] = None,
+    fokus: bool = False,
+):
     with open_index(request) as conn:
         context = _page_context(request, conn)
     context.update(
         {
             "form": form,
             "meldung": meldung,
+            "erfolg": erfolg,
+            "erfolg_link": erfolg_link,
             "unterkategorien": _subcategory_options(request, context["kategorien"]),
+            "eingabe": eingabe,
+            "fokus": fokus or bool(meldung and eingabe),
+            "entwuerfe": draftmod.entries(request.app.state.root),
         }
     )
     return templates.TemplateResponse(request, "new.html", context, status_code=status)
@@ -954,59 +1140,50 @@ def page_delete_file(request: Request, part: str, datei: str = Form("")):
 
 
 @pages.get("/neu", response_class=HTMLResponse)
-def page_new(request: Request, kategorie: str = ""):
-    return _new_page(request, {"kategorie": kategorie, "menge": "0"})
+def page_new(request: Request, kategorie: str = "", hinweis: str = "", entwurf: str = ""):
+    """Neues Bauteil. Die Meldungen nach Vorschlägen prüfen, was wirklich der Fall ist."""
+    root = request.app.state.root
+    erfolg, link, fokus = "", None, False
+    if hinweis == "vorschlag" and trashmod.is_stamp(entwurf):
+        try:
+            draft = draftmod.load(root, entwurf)
+        except ValueError:
+            draft = None
+        if draft is not None:
+            fokus = True  # gleich das nächste Bauteil eintippen
+            if draft.status == "ready":
+                erfolg = f"Der Vorschlag für „{draft.input}“ ist fertig und steht unten zum Prüfen."
+            else:
+                erfolg = (
+                    f"„{draft.input}“ wird im Hintergrund vorbereitet. Du kannst gleich das "
+                    "nächste Bauteil eingeben; fertige Vorschläge stehen unten zum Prüfen."
+                )
+    elif hinweis == "verworfen" and trashmod.is_stamp(entwurf):
+        if not (draftmod.drafts_dir(root) / entwurf).exists():
+            erfolg = "Der Vorschlag ist verworfen und liegt im Papierkorb des Lagers."
+            link = TRASH_LINK
+    return _new_page(
+        request, {"kategorie": kategorie, "menge": "0"}, erfolg=erfolg, erfolg_link=link,
+        fokus=fokus,
+    )
+
+
+@pages.get("/neu/vorschlaege", response_class=HTMLResponse)
+def page_draft_list(request: Request):
+    """Nur die Liste der Vorschläge; static/app.js lädt sie nach, solange einer in Arbeit ist."""
+    return templates.TemplateResponse(
+        request, "_drafts.html", {"entwuerfe": draftmod.entries(request.app.state.root)}
+    )
 
 
 @pages.post("/neu", dependencies=[Depends(require_write)])
 def page_new_submit(
     request: Request,
-    bezeichnung: str = Form(""),
-    kategorie: str = Form(""),
-    neue_kategorie: str = Form(""),
-    unterkategorie: str = Form(""),
-    neue_unterkategorie: str = Form(""),
-    name: str = Form(""),
-    hersteller: str = Form(""),
-    lagerfach: str = Form(""),
-    menge: str = Form("0"),
-    tags: str = Form(""),
-    aliase: str = Form(""),
-    notizen: str = Form(""),
+    form: dict = Depends(part_form),
     dateien: FormFiles = File(default=[]),
 ):
-    form = {
-        "bezeichnung": bezeichnung, "kategorie": kategorie, "neue_kategorie": neue_kategorie,
-        "unterkategorie": unterkategorie, "neue_unterkategorie": neue_unterkategorie,
-        "name": name, "hersteller": hersteller, "lagerfach": lagerfach, "menge": menge,
-        "tags": tags, "aliase": aliase, "notizen": notizen,
-    }
     try:
-        try:
-            quantity = int(menge.strip() or "0")
-        except ValueError:
-            raise ValueError("Die Menge muss eine ganze Zahl sein.")
-        if not bezeichnung.strip():
-            raise ValueError("Bitte eine Bezeichnung eintragen.")
-        # Bei einer neu eingetippten Kategorie kann die Auswahl darunter nicht passen.
-        new_cat = bool(neue_kategorie.strip())
-        effective = catmod.normalize_id(neue_kategorie) if new_cat else kategorie
-        subcategory = _chosen_subcategory(
-            effective, unterkategorie, neue_unterkategorie, lenient=new_cat
-        )
-        part_dir = _create_part(
-            request,
-            bezeichnung,
-            kategorie,
-            {
-                "name": name.strip(), "manufacturer": hersteller.strip(),
-                "location": lagerfach.strip(), "quantity": quantity,
-                "tags": _split_list(tags), "aliases": _split_list(aliase),
-                "notes": notizen.strip(),
-            },
-            neue_kategorie,
-            subcategory,
-        )
+        part_dir = _create_from_form(request, form)
     except ValueError as e:
         return _new_page(request, form, str(e), 400)
 
@@ -1019,7 +1196,179 @@ def page_new_submit(
             "Das Bauteil ist angelegt, aber nicht jede Datei wurde gespeichert: " + "; ".join(errors),
             200,
         )
-    return RedirectResponse(f"/p/{quote(part_dir.name)}", status_code=303)
+    return _to_start(part_dir.name, "angelegt")
+
+
+# ------------------------------------------- Vorschläge („Automatisch ergänzen“)
+
+# Formularfeld der Seite -> Feld im Entwurf. Darunter steht jeweils die Herkunft.
+DRAFT_FORM_FIELDS = {
+    "bezeichnung": "part",
+    "kategorie": "category",
+    "unterkategorie": "subcategory",
+    "name": "name",
+    "hersteller": "manufacturer",
+    "aliase": "aliases",
+    "tags": "tags",
+    "notizen": "notes",
+}
+
+
+def _draft_form(request: Request, draft: draftmod.Draft, kategorien: List[dict]) -> dict:
+    """Das Formular „Vorschlag prüfen“, vorbelegt mit den Werten des Entwurfs.
+
+    Eine vorgeschlagene Kategorie oder Unterkategorie, die es noch nicht gibt, steht im
+    Feld zum Anlegen. Menge und Lagerfach schlägt nie jemand vor; die trägt Lukas ein.
+    """
+    category, sub = draft.value("category"), draft.value("subcategory")
+    form = {
+        "bezeichnung": draft.value("part"),
+        "kategorie": "",
+        "neue_kategorie": "",
+        "unterkategorie": "",
+        "neue_unterkategorie": "",
+        "name": draft.value("name"),
+        "hersteller": draft.value("manufacturer"),
+        "lagerfach": "",
+        "menge": "0",
+        "tags": ", ".join(draft.value("tags")),
+        "aliase": ", ".join(draft.value("aliases")),
+        "notizen": draft.value("notes"),
+    }
+    if category in {k["id"] for k in kategorien}:
+        form["kategorie"] = category
+        if sub and sub in catmod.subcategories(request.app.state.root, category):
+            form["unterkategorie"] = f"{category}/{sub}"
+        else:
+            form["neue_unterkategorie"] = sub
+    elif category:
+        form["neue_kategorie"] = category
+        form["neue_unterkategorie"] = sub
+    return form
+
+
+def _draft_sources(draft: draftmod.Draft, form: dict, proposed: dict) -> dict:
+    """Herkunft je Formularfeld, aber nur solange dort noch der vorgeschlagene Wert steht."""
+    shown = {}
+    for name, field in DRAFT_FORM_FIELDS.items():
+        source = draftmod.describe_source(draft.source(field))
+        unchanged = all(
+            form.get(key, "") == proposed.get(key, "")
+            for key in (name, f"neue_{name}")
+            if key in proposed
+        )
+        if source and unchanged:
+            shown[name] = source
+    return shown
+
+
+def _draft_page(
+    request: Request,
+    draft_id: str,
+    form: Optional[dict] = None,
+    meldung: str = "",
+    status: int = 200,
+    erfolg: str = "",
+):
+    root = request.app.state.root
+    with open_index(request) as conn:
+        context = _page_context(request, conn)
+        try:
+            draft = draftmod.load(root, draft_id)
+        except draftmod.DraftNotFound as e:
+            draft, meldung, status = None, meldung or str(e), 404
+        except ValueError as e:
+            draft, meldung, status = None, meldung or str(e), 500
+        herkunft, vergeben = {}, None
+        if draft is not None:
+            proposed = _draft_form(request, draft, context["kategorien"])
+            form = form or proposed
+            herkunft = _draft_sources(draft, form, proposed)
+            if form["bezeichnung"].strip():
+                vergeben = searchmod.get_part(conn, partmod.normalize_part_id(form["bezeichnung"]))
+    context.update(
+        {
+            "entwurf": draft,
+            "form": form or {},
+            "herkunft": herkunft,
+            "vergeben": vergeben,
+            "meldung": meldung,
+            "erfolg": erfolg if draft is not None else "",
+            "unterkategorien": _subcategory_options(request, context["kategorien"]),
+        }
+    )
+    return templates.TemplateResponse(request, "draft.html", context, status_code=status)
+
+
+@pages.post("/neu/vorschlag", dependencies=[Depends(require_write)])
+def page_draft_create(request: Request, eingabe: str = Form("")):
+    """„Automatisch ergänzen“: legt einen Vorschlag an und kehrt gleich zurück.
+
+    Vorbereitet wird er im Hintergrund (server/worker.py). Lukas kann sofort das nächste
+    Bauteil eingeben und prüft die Vorschläge, sobald sie fertig sind.
+    """
+    try:
+        draft = draftmod.create(request.app.state.root, eingabe)
+    except ValueError as e:
+        return _new_page(request, {"kategorie": "", "menge": "0"}, str(e), 400, eingabe=eingabe)
+    request.app.state.worker.wake()
+    return RedirectResponse(
+        "/neu?" + urlencode({"hinweis": "vorschlag", "entwurf": draft.id}), status_code=303
+    )
+
+
+@pages.get("/vorschlag/{draft_id}", response_class=HTMLResponse)
+def page_draft(request: Request, draft_id: str, hinweis: str = ""):
+    erfolg = "Der Vorschlag ist aus dem Papierkorb zurück." if hinweis == "wiederhergestellt" else ""
+    return _draft_page(request, draft_id, erfolg=erfolg)
+
+
+@pages.post("/vorschlag/{draft_id}", dependencies=[Depends(require_write)])
+def page_draft_save(
+    request: Request,
+    draft_id: str,
+    form: dict = Depends(part_form),
+    dateien: FormFiles = File(default=[]),
+):
+    """Speichern: legt das Bauteil mit den geprüften Werten an und räumt den Vorschlag weg."""
+    root = request.app.state.root
+    try:
+        draft = draftmod.load(root, draft_id)
+    except ValueError:
+        return _draft_page(request, draft_id)  # zeigt, warum es ihn nicht (mehr) gibt
+    try:
+        draftmod.ensure_reviewable(draft)
+    except ValueError as e:
+        return _draft_page(request, draft_id, meldung=str(e), status=409)
+    try:
+        part_dir = _create_from_form(request, form)
+    except ValueError as e:
+        return _draft_page(request, draft_id, form, str(e), 400)
+    errors = draftmod.finish(root, draft_id, part_dir, request.app.state.cfg)
+    _added, upload_errors = _save_uploads(request, part_dir, dateien)
+    _rebuild(request)
+    errors += upload_errors
+    if errors:
+        return _part_page(
+            request,
+            part_dir.name,
+            "Das Bauteil ist angelegt, aber nicht jede Datei wurde übernommen: " + "; ".join(errors),
+            200,
+        )
+    return _to_start(part_dir.name, "angelegt")
+
+
+@pages.post("/vorschlag/{draft_id}/verwerfen", dependencies=[Depends(require_write)])
+def page_draft_discard(request: Request, draft_id: str):
+    try:
+        draftmod.discard(request.app.state.root, draft_id)
+    except draftmod.DraftNotFound:
+        return _draft_page(request, draft_id)
+    except ValueError as e:
+        return _draft_page(request, draft_id, meldung=str(e), status=400)
+    return RedirectResponse(
+        "/neu?" + urlencode({"hinweis": "verworfen", "entwurf": draft_id}), status_code=303
+    )
 
 
 @pages.post("/index/rebuild", dependencies=[Depends(require_write)])
@@ -1094,19 +1443,28 @@ def page_trash(request: Request, hinweis: str = ""):
 
 @pages.post("/papierkorb/wiederherstellen", dependencies=[Depends(require_write)])
 def page_trash_restore(request: Request, eintrag: str = Form("")):
-    """Holt einen Eintrag zurück und zeigt danach das Bauteil, zu dem er gehört."""
+    """Holt einen Eintrag zurück. Danach: Bauteil → Startseite mit Meldung, Datei → Seite
+    ihres Bauteils, Vorschlag → Seite „Vorschlag prüfen“."""
     root = request.app.state.root
     try:
         target = trashmod.restore(root, eintrag)
     except ValueError as e:
         return _trash_page(request, meldung=str(e), status=400)
     _rebuild(request)
+    if target.parent == draftmod.drafts_dir(root):
+        return RedirectResponse(
+            f"/vorschlag/{quote(target.name)}?hinweis=wiederhergestellt", status_code=303
+        )
     owner = _owning_part_dir(root, target)
     if owner is None:
         return RedirectResponse("/papierkorb", status_code=303)
-    what = owner.name if owner == target else target.relative_to(owner).as_posix()
+    if owner == target:  # ein ganzes Bauteil: zurück auf die Startseite
+        return _to_start(owner.name, "wiederhergestellt")
+    # Eine Datei: die Seite ihres Bauteils, dort ist sie wieder zu sehen.
     return RedirectResponse(
-        f"/p/{quote(owner.name)}?" + urlencode({"wiederhergestellt": what}), status_code=303
+        f"/p/{quote(owner.name)}?"
+        + urlencode({"wiederhergestellt": target.relative_to(owner).as_posix()}),
+        status_code=303,
     )
 
 
@@ -1324,11 +1682,23 @@ def create_app(
     `config_path` ist die config.yaml, in die ein geänderter Lager-Ordner geschrieben wird.
     `bind_host` ist die Adresse, an der der Server lauscht (nur für Hinweise auf der Seite).
     """
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Der Arbeiter für Vorschläge läuft, solange der Server läuft. Die Test-Browser
+        # (TestClient ohne `with`) lösen das nicht aus; dort ruft der Test run_once auf.
+        app.state.worker.start()
+        try:
+            yield
+        finally:
+            app.state.worker.stop()
+
     app = FastAPI(
         title="Lager",
         version=__version__,
         description="Bauteile-Lagersystem: Suche, Bauteile, Datenblätter und andere Dateien.",
+        lifespan=lifespan,
     )
+    app.state.worker = DraftWorker(app)
     app.state.root = Path(root)
     app.state.cfg = cfg if cfg is not None else load_config(config_path)
     app.state.config_path = Path(config_path)
@@ -1339,7 +1709,7 @@ def create_app(
     def index_error(request: Request, error: db.IndexDbError) -> JSONResponse:
         return JSONResponse({"detail": str(error)}, status_code=500)
 
-    app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
+    app.mount("/static", RevalidatedStaticFiles(directory=str(HERE / "static")), name="static")
     app.include_router(api, prefix="/api/v1")
     app.include_router(files)
     app.include_router(pages)

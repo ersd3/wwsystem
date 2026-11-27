@@ -2,7 +2,7 @@
 
 Die Felder entsprechen genau dem, was die CLI mit --json ausgibt.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -92,11 +92,50 @@ class FileDeleteResult(BaseModel):
     teil: Part
 
 
+class DraftField(BaseModel):
+    value: Union[str, List[str]]  # Liste bei aliases und tags
+    # Herkunft: kind (input | api | library | web), dazu name, url, quote. Leer = keine.
+    source: Dict[str, str]
+
+
+class DraftFile(BaseModel):
+    path: str  # relativ zum Ordner des Vorschlags
+    size: int
+    source: Dict[str, str]
+
+
+class Draft(BaseModel):
+    id: str  # Name des Ordners unter _entwuerfe, z. B. 20261127T091500Z
+    created: str  # ISO 8601, UTC
+    updated: str  # letzte Änderung des Stands, ISO 8601, UTC
+    status: str  # queued (wartet) | running (in Arbeit) | ready (bereit zum Prüfen) | failed
+    error: str  # Grund bei failed, sonst leer
+    input: str  # was eingegeben wurde
+    path: str  # relativ zum Lager-Root
+    fields: Dict[str, DraftField]  # part, category, subcategory, name, manufacturer, aliases, tags, notes
+    files: List[DraftFile]
+
+
+class DraftList(BaseModel):
+    ordner: str  # Ordner der Vorschläge (absolut)
+    anzahl: int
+    eintraege: List[Draft]
+
+
+class NewDraft(BaseModel):
+    input: str  # Name, Bestellnummer oder Suchbegriff
+
+
+class DraftDiscardResult(BaseModel):
+    verworfen: str  # ID des Vorschlags
+    papierkorb: str  # Ort im Papierkorb, relativ zum Lager-Root
+
+
 class TrashEntry(BaseModel):
     id: str  # Name des Zeit-Ordners im Papierkorb, z. B. 20261126T205502Z
-    kind: str  # part | file
-    name: str  # Bezeichnung des Bauteils bzw. Name der Datei
-    part: str  # Bauteil, zu dem der Eintrag gehört(e)
+    kind: str  # part | file | draft (verworfener Vorschlag)
+    name: str  # Bezeichnung des Bauteils, Name der Datei bzw. Eingabe des Vorschlags
+    part: str  # Bauteil, zu dem der Eintrag gehört(e); bei einem Vorschlag leer
     path: str  # alter Platz im Lager
     deleted_at: str  # ISO 8601, UTC
     location: str  # jetziger Ort, relativ zum Lager-Root

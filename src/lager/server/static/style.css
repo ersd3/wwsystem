@@ -122,15 +122,60 @@ button:disabled { opacity: .6; cursor: default; }
 .trash-item form { flex: none; }
 .trash-problem { margin-top: 4px; color: var(--warn-text); font-size: .85rem; }
 
+/* „Automatisch ergänzen“: Kasten auf /neu, offene Vorschläge, Herkunft unter einem Wert. */
+.suggest {
+  display: grid; gap: 6px; margin: 14px 0 8px; padding: 2px 14px 14px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.detail .suggest h2 { margin: 12px 0 0; color: var(--text); font-size: 1.1rem; }
+.suggest h3 { margin: 16px 0 0; font-size: 1rem; }
+.drafts { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 8px; }
+.drafts li { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+/* Ein Vorschlag in der Liste: links Eingabe und Zeit (Link), rechts der Stand. */
+.drafts .draft-item {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius);
+}
+.draft-link { flex: 1 1 180px; min-width: 0; display: grid; gap: 2px; text-decoration: none; }
+.draft-name { font-weight: 600; overflow-wrap: anywhere; }
+.draft-link .meta { font-size: .85rem; }
+.status {
+  flex: none; padding: 2px 10px; border-radius: 999px; font-size: .85rem; white-space: nowrap;
+  color: var(--muted); border: 1px solid var(--line);
+}
+.status-ready { color: var(--ok-text); background: var(--ok-bg); border-color: var(--ok-line); }
+.status-failed { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
+.status-running::before { content: "⏳ "; }
+.source {
+  margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  color: var(--muted); font-size: .85rem;
+}
+.source-badge {
+  padding: 1px 8px; border-radius: 999px;
+  color: var(--ok-text); background: var(--ok-bg); border: 1px solid var(--ok-line);
+}
+.discard {
+  display: grid; gap: 6px; justify-items: start;
+  margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line);
+}
+
 /* static/app.js setzt die Klasse "js" am <html>. Damit lassen sich Teile nur mit
    oder nur ohne JavaScript zeigen. */
 .jsonly { display: none; }
 .js .jsonly { display: revert; }
 .js .nojs { display: none; }
 .add {
+  position: relative;
   flex: none; display: grid; place-items: center; width: 44px; height: 44px;
   font-size: 1.6rem; font-weight: 600; line-height: 1; text-decoration: none;
   color: var(--accent); border: 1px solid var(--line); border-radius: var(--radius);
+}
+/* Zahl am Plus: fertige Vorschläge, die auf das Prüfen warten. */
+.badge {
+  position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px;
+  display: grid; place-items: center; border-radius: 999px;
+  font-size: .75rem; font-weight: 700; line-height: 1;
+  color: var(--accent-text); background: var(--accent);
 }
 
 .notice {

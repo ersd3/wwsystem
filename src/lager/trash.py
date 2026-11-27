@@ -1,8 +1,9 @@
 """Papierkorb des Lagers: Gelöschtes wird verschoben, nicht vernichtet.
 
-Bauteile und Dateien, die über das Programm gelöscht werden, landen unter
-<lager_root>/_papierkorb/<Zeitpunkt>/<derselbe Pfad wie im Lager>. Jedes Löschen bekommt
-einen eigenen Zeit-Ordner mit genau einem Eintrag: einem Bauteil-Ordner oder einer Datei.
+Bauteile und Dateien, die über das Programm gelöscht werden, und verworfene Vorschläge
+(drafts.py) landen unter <lager_root>/_papierkorb/<Zeitpunkt>/<derselbe Pfad wie im Lager>.
+Jedes Löschen bekommt einen eigenen Zeit-Ordner mit genau einem Eintrag: einem
+Bauteil-Ordner, einem Entwurf-Ordner oder einer Datei.
 Ordner mit `_` am Anfang überspringt das Lager, deshalb taucht dort nichts mehr in der
 Suche auf.
 
@@ -41,9 +42,9 @@ _IGNORED_FILES = {"thumbs.db", "desktop.ini"}
 @dataclass(frozen=True)
 class TrashEntry:
     id: str  # Name des Zeit-Ordners, z. B. "20261126T205502Z"
-    kind: str  # "part" (ganzer Bauteil-Ordner) oder "file" (eine Datei)
-    name: str  # Bezeichnung des Bauteils bzw. Name der Datei
-    part: str  # Bauteil, zu dem der Eintrag gehört(e)
+    kind: str  # "part" (ganzer Bauteil-Ordner), "file" (eine Datei), "draft" (ein Vorschlag)
+    name: str  # Bezeichnung des Bauteils, Name der Datei bzw. Eingabe des Vorschlags
+    part: str  # Bauteil, zu dem der Eintrag gehört(e); bei einem Vorschlag leer
     path: str  # alter Platz im Lager, z. B. "microcontroller/Shields/Motor Shield"
     deleted_at: str  # Zeitpunkt des Löschens, ISO 8601 in UTC
     location: Path  # wo der Eintrag jetzt liegt
@@ -66,6 +67,49 @@ def trash_dir(root: Path) -> Path:
     return root / TRASH_DIR
 
 
+# ------------------------------------------------------------ Zeit-Ordner
+
+
+def is_stamp(name: str) -> bool:
+    """Ist `name` ein Zeitpunkt wie 20261126T205502Z oder 20261126T205502Z-2?"""
+    return bool(_STAMP_RE.match(name or ""))
+
+
+def stamp_key(name: str) -> tuple[str, int]:
+    """Sortierschlüssel eines Zeitpunkt-Namens: erst die Zeit, dann die Nummer."""
+    match = _STAMP_RE.match(name)
+    if match is None:
+        return ("", 0)
+    return (match["stamp"], int(match["number"] or 1))
+
+
+def stamp_iso(name: str) -> str:
+    """'20261126T205502Z-2' -> '2026-11-26T20:55:02Z' (ISO 8601 in UTC)."""
+    match = _STAMP_RE.match(name)
+    if match is None:
+        raise ValueError(f"Kein Zeitpunkt: {name!r}")
+    moment = datetime.strptime(match["stamp"], STAMP_FORMAT).replace(tzinfo=timezone.utc)
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def claim_stamp_folder(base: Path) -> Path:
+    """Legt in `base` einen neuen Ordner an, der den jetzigen Zeitpunkt (UTC) als Namen trägt.
+
+    mkdir ohne exist_ok belegt den Ordner in einem Schritt; zwei gleichzeitige Anfragen an
+    den Server bekommen so nie denselben. In derselben Sekunde gibt es eine Nummer dazu
+    (20261126T205502Z-2). Genutzt vom Papierkorb und von den Entwürfen (drafts.py).
+    """
+    stamp = datetime.now(timezone.utc).strftime(STAMP_FORMAT)
+    number = 1
+    while True:
+        folder = base / (stamp if number == 1 else f"{stamp}-{number}")
+        try:
+            folder.mkdir()
+            return folder
+        except FileExistsError:
+            number += 1
+
+
 def move_to_trash(root: Path, source: Path) -> Path:
     """Verschiebt eine Datei oder einen Ordner aus dem Lager in den Papierkorb.
 
@@ -86,18 +130,7 @@ def move_to_trash(root: Path, source: Path) -> Path:
     if not readme.exists():
         readme.write_text(README_TEXT, encoding="utf-8")
 
-    # Jedes Löschen bekommt einen eigenen Zeit-Ordner, auch zwei in derselben Sekunde.
-    # mkdir ohne exist_ok belegt den Ordner in einem Schritt; zwei gleichzeitige
-    # Anfragen an den Server bekommen so nie denselben.
-    stamp = datetime.now(timezone.utc).strftime(STAMP_FORMAT)
-    number = 1
-    while True:
-        folder = base / (stamp if number == 1 else f"{stamp}-{number}")
-        try:
-            folder.mkdir()
-            break
-        except FileExistsError:
-            number += 1
+    folder = claim_stamp_folder(base)  # jedes Löschen bekommt einen eigenen Zeit-Ordner
     target = folder / rel
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -112,25 +145,22 @@ def move_to_trash(root: Path, source: Path) -> Path:
 
 
 def _item(stamp_dir: Path) -> Path | None:
-    """Der eine Eintrag in einem Zeit-Ordner: ein Bauteil-Ordner oder eine Datei.
+    """Der eine Eintrag in einem Zeit-Ordner: ein Bauteil-Ordner, ein Entwurf oder eine Datei.
 
     Der Weg dorthin besteht aus Ordnern mit genau einem Inhalt (dem alten Pfad im Lager).
     Ist ein Ordner leer oder enthält er mehreres (von Hand verändert), ist das Ergebnis None.
     """
+    from .drafts import DRAFT_FILE  # hier, weil drafts.py dieses Modul importiert
+
     current = stamp_dir
     while current.is_dir():
-        if (current / "part.yaml").is_file():
+        if (current / "part.yaml").is_file() or (current / DRAFT_FILE).is_file():
             return current
         children = [c for c in current.iterdir() if c.name.lower() not in _IGNORED_FILES]
         if len(children) != 1:
             return None
         current = children[0]
     return current if current.is_file() else None
-
-
-def _deleted_at(stamp: str) -> str:
-    moment = datetime.strptime(stamp, STAMP_FORMAT).replace(tzinfo=timezone.utc)
-    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _owner_dir(root: Path, rel_parts: tuple[str, ...]) -> Path | None:
@@ -160,33 +190,40 @@ def entries(root: Path) -> list[TrashEntry]:
     base = trash_dir(root)
     if not base.is_dir():
         return []
-    found: list[tuple[tuple[str, int], TrashEntry]] = []
+    from .drafts import title_of  # hier, weil drafts.py dieses Modul importiert
+
+    found: list[TrashEntry] = []
     for stamp_dir in base.iterdir():
-        match = _STAMP_RE.match(stamp_dir.name)
-        if match is None or not stamp_dir.is_dir():
+        if not is_stamp(stamp_dir.name) or not stamp_dir.is_dir():
             continue
         item = _item(stamp_dir)
         if item is None:
             continue
         rel_parts = item.relative_to(stamp_dir).parts
-        kind = "part" if item.is_dir() else "file"
-        entry = TrashEntry(
-            id=stamp_dir.name,
-            kind=kind,
-            name=item.name,
-            part=item.name if kind == "part" else _owner_name(root, rel_parts),
-            path="/".join(rel_parts),
-            deleted_at=_deleted_at(match["stamp"]),
-            location=item,
+        if item.is_file():
+            kind, name, part = "file", item.name, _owner_name(root, rel_parts)
+        elif (item / "part.yaml").is_file():
+            kind, name, part = "part", item.name, item.name
+        else:  # verworfener Vorschlag: angezeigt wird, was eingegeben wurde
+            kind, name, part = "draft", title_of(item), ""
+        found.append(
+            TrashEntry(
+                id=stamp_dir.name,
+                kind=kind,
+                name=name,
+                part=part,
+                path="/".join(rel_parts),
+                deleted_at=stamp_iso(stamp_dir.name),
+                location=item,
+            )
         )
-        found.append(((match["stamp"], int(match["number"] or 1)), entry))
-    found.sort(key=lambda pair: pair[0], reverse=True)
-    return [entry for _key, entry in found]
+    found.sort(key=lambda entry: stamp_key(entry.id), reverse=True)
+    return found
 
 
 def find_entry(root: Path, entry_id: str) -> TrashEntry:
     """Ein Eintrag über seine ID (den Namen des Zeit-Ordners). Unbekannt: ValueError."""
-    if not _STAMP_RE.match(entry_id or ""):
+    if not is_stamp(entry_id):
         raise ValueError(f"Ungültiger Eintrag im Papierkorb: {entry_id!r}")
     for entry in entries(root):
         if entry.id == entry_id:
@@ -202,6 +239,10 @@ def restore_problem(root: Path, entry: TrashEntry) -> str:
     from . import parts as partmod  # hier, weil parts.py dieses Modul importiert
 
     rel_parts = tuple(entry.path.split("/"))
+    if entry.kind == "draft":
+        if root.joinpath(*rel_parts).exists():
+            return f"Am alten Platz gibt es schon einen Ordner: {entry.path}"
+        return ""
     if entry.kind == "part":
         if len(rel_parts) < 2:
             return "Unklar, wohin der Eintrag gehört. Bitte im Explorer zurückschieben."
@@ -266,7 +307,10 @@ def restore(root: Path, entry_id: str) -> Path:
     if problem:
         raise ValueError(problem)
     rel_parts = tuple(entry.path.split("/"))
-    if entry.kind == "part":
+    if entry.kind == "draft":
+        target = root.joinpath(*rel_parts)
+        parent = target.parent
+    elif entry.kind == "part":
         parent = catmod.subcategory_dir(root, rel_parts[0], "/".join(rel_parts[1:-1]))
         target = parent / entry.name
     else:

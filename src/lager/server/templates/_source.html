@@ -1,0 +1,11 @@
+{# Herkunft eines vorgeschlagenen Werts (Seite „Vorschlag prüfen“).
+   `quelle` kommt aus drafts.describe_source: text, url (nur http/https) und quote. #}
+{% macro herkunft(quelle) -%}
+{% if quelle %}
+<p class="source">
+  <span class="source-badge">{{ quelle.text }}</span>
+  {% if quelle.url %}<a href="{{ quelle.url }}" target="_blank" rel="noopener noreferrer">Quelle öffnen</a>{% endif %}
+  {% if quelle.quote %}<q>{{ quelle.quote }}</q>{% endif %}
+</p>
+{% endif %}
+{%- endmacro %}

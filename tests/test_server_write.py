@@ -145,7 +145,12 @@ def test_neues_bauteil_mit_datenblatt(client, lager_voll):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/p/BC547"
+    # Nach dem Anlegen auf die Startseite, mit Meldung und Link (Wunsch von Lukas, 2026-11-27).
+    assert response.headers["location"] == "/?hinweis=angelegt&teil=BC547"
+    start = client.get(response.headers["location"]).text
+    assert "„BC547“ ist angelegt." in start and 'href="/p/BC547">Zum Bauteil' in start
+    # Gemeldet wird nur, was stimmt.
+    assert "ist angelegt" not in client.get("/?hinweis=angelegt&teil=GIBTESNICHT").text
     part = client.get("/api/v1/parts/BC547").json()
     assert part["name"] == "NPN-Transistor"
     assert part["manufacturer"] == "onsemi"

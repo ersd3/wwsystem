@@ -2,7 +2,10 @@
 
 Die Fixtures client, phone, geschuetzt, app und config_path stehen in conftest.py.
 """
+import re
+
 from lager import __version__
+from lager.server import app as app_module
 
 
 def test_health(client):
@@ -138,6 +141,22 @@ def test_seite_neu_einlesen(client, lager_voll):
     response = client.post("/index/rebuild", follow_redirects=False)
     assert response.status_code == 303
     assert 'href="/files/mosfets/IRF540N/irf540n.pdf"' in client.get("/", params={"q": "irf540n"}).text
+
+
+def test_style_und_skript_werden_nicht_veraltet_verwendet(client):
+    """Nach einem Update muss jeder Browser die neue style.css laden (Rückmeldung zu 0.7.0:
+    Mit der alten Fassung im Zwischenspeicher sahen die Knöpfe kaputt aus)."""
+    page = client.get("/").text
+    for name in ("style.css", "app.js"):
+        version = app_module.static_version(name)
+        assert re.fullmatch(r"[0-9a-f]{10}", version)
+        assert f"/static/{name}?v={version}" in page
+        response = client.get(f"/static/{name}?v={version}")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+        # Unverändert: Der Browser bekommt nur „304 Not Modified“, nicht die ganze Datei.
+        again = client.get(f"/static/{name}", headers={"If-None-Match": response.headers["etag"]})
+        assert again.status_code == 304
 
 
 def test_openapi_beschreibt_die_api(client):

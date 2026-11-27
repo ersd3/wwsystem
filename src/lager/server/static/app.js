@@ -34,6 +34,33 @@ document.documentElement.classList.add('js');
   });
 })();
 
+// Vorschläge auf /neu: Solange einer wartet oder in Arbeit ist (data-pending), die Liste
+// alle 3 Sekunden neu laden. Ist keiner mehr offen, hört das Nachladen auf.
+(function () {
+  if (!window.fetch) return;
+
+  function schedule() {
+    var box = document.getElementById('vorschlaege');
+    if (!box || !box.hasAttribute('data-pending')) return;
+    setTimeout(function () {
+      fetch(box.getAttribute('data-poll'))
+        .then(function (response) {
+          return response.ok ? response.text() : Promise.reject(response.status);
+        })
+        .then(function (html) {
+          var current = document.getElementById('vorschlaege');
+          if (current) current.outerHTML = html;
+        })
+        .catch(function () {
+          // Server kurz nicht erreichbar: beim nächsten Mal wieder versuchen.
+        })
+        .then(schedule);
+    }, 3000);
+  }
+
+  schedule();
+})();
+
 // Unterkategorie: nur die der gewählten Kategorie zur Auswahl stellen.
 // Der Server liefert alle als <option data-kategorie="..." data-kurz="...">.
 (function () {

@@ -1,6 +1,7 @@
 """Tests für das Verwalten von Bauteilen: freie Bezeichnungen, Unterkategorien, Umbenennen,
 Verschieben, Löschen (Papierkorb), Dateien löschen, Hochladen mit Meldung, Ordner-Auswahl."""
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -114,7 +115,10 @@ def test_neues_bauteil_im_browser_mit_leerzeichen_und_kleinbuchstaben(client, la
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/p/raspberry%20pi%20pico%20h"
+    assert response.headers["location"] == "/?hinweis=angelegt&teil=raspberry+pi+pico+h"
+    start = client.get(response.headers["location"]).text
+    assert "„raspberry pi pico h“ ist angelegt." in start
+    assert 'href="/p/raspberry%20pi%20pico%20h">Zum Bauteil' in start
     assert (lager_voll / "mosfets" / "raspberry pi pico h" / "part.yaml").is_file()
     form = client.get("/neu").text
     assert 'autocapitalize="characters"' not in form
@@ -374,6 +378,19 @@ def test_bauteilseite_hat_drei_eigene_knoepfe(client):
     assert 'class="action" href="/p/IRF9540N/umbenennen"' in page
     assert 'class="action danger" href="/p/IRF9540N/loeschen"' in page
     assert page.count('<svg class="icon"') >= 3
+
+
+def test_symbole_bleiben_auch_ohne_style_css_klein(client, lager_voll):
+    """Größe und Strich stehen auch am SVG selbst: Mit einer alten style.css im Browser
+    wurden die Symbole sonst riesig und schwarz (Rückmeldung von Lukas zu 0.7.0)."""
+    parts.delete_part(lager_voll, "IRF540N")
+    pages = [client.get("/p/IRF9540N").text, client.get("/papierkorb").text]
+    for page in pages:
+        icons = re.findall(r'<svg class="icon"[^>]*>', page)
+        assert icons
+        for tag in icons:
+            assert 'width="22" height="22"' in tag and 'fill="none"' in tag
+            assert 'stroke="currentColor"' in tag
 
 
 def test_seite_bearbeiten_zeigt_ort_ohne_umbenennen_und_loeschen(client):

@@ -251,9 +251,13 @@ def test_wiederherstellen_im_browser(client, lager_voll):
         follow_redirects=False,
     )
     assert response.status_code == 303
-    assert response.headers["location"] == "/p/IRF540N?wiederhergestellt=IRF540N"
-    assert "IRF540N ist aus dem Papierkorb zurück." in client.get(response.headers["location"]).text
+    # Ein ganzes Bauteil: zurück auf die Startseite (Wunsch von Lukas, 2026-11-27).
+    assert response.headers["location"] == "/?hinweis=wiederhergestellt&teil=IRF540N"
+    start = client.get(response.headers["location"]).text
+    assert "„IRF540N“ ist aus dem Papierkorb zurück." in start
+    assert 'href="/p/IRF540N">Zum Bauteil' in start
     assert client.get("/api/v1/parts/IRF540N").status_code == 200
+    assert "aus dem Papierkorb zurück" not in client.get("/?hinweis=wiederhergestellt&teil=X9").text
 
     client.post("/p/IRLZ44N/dateien/loeschen", data={"datei": "3d/TO-220.step"})
     response = client.post(

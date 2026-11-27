@@ -1,0 +1,59 @@
+{# Felder eines neuen Bauteils, für new.html und draft.html („Vorschlag prüfen“).
+   Auf draft.html steht unter einem vorgeschlagenen Wert seine Herkunft (`herkunft`). #}
+{% from "_source.html" import herkunft as zeige_herkunft %}
+{% set h = herkunft if herkunft is defined and herkunft else {} %}
+<label for="bezeichnung">Bezeichnung</label>
+<input id="bezeichnung" type="text" name="bezeichnung" value="{{ form.bezeichnung }}" required
+       placeholder="z. B. IRLZ44N oder Arduino Mega 2560" autocomplete="off" autocapitalize="off" spellcheck="false">
+{{ zeige_herkunft(h.get("bezeichnung")) }}
+<p class="hint">
+  Wird zum Ordnernamen und bleibt so geschrieben, wie sie hier steht, auch mit Leerzeichen
+  und Kleinbuchstaben. Nicht erlaubt sind &lt; &gt; : " / \ | ? *
+</p>
+
+<label for="kategorie">Kategorie</label>
+<select id="kategorie" name="kategorie">
+  <option value="">– wählen –</option>
+  {% for k in kategorien %}
+  <option value="{{ k.id }}"{% if form.kategorie == k.id %} selected{% endif %}>{{ k.label }}</option>
+  {% endfor %}
+</select>
+<label for="neue_kategorie">oder neue Kategorie anlegen</label>
+<input id="neue_kategorie" type="text" name="neue_kategorie" value="{{ form.neue_kategorie }}"
+       placeholder="z. B. Kondensatoren" autocomplete="off">
+{{ zeige_herkunft(h.get("kategorie")) }}
+{% include "_subcategory.html" %}
+{{ zeige_herkunft(h.get("unterkategorie")) }}
+
+<label for="name">Beschreibung</label>
+<input id="name" type="text" name="name" value="{{ form.name }}"
+       placeholder="z. B. MOSFET N-Kanal 55 V / 47 A, TO-220" autocomplete="off">
+{{ zeige_herkunft(h.get("name")) }}
+
+<label for="dateien">Datenblatt und andere Dateien</label>
+<input id="dateien" type="file" name="dateien" multiple>
+<p class="hint">PDF, STEP, KiCad, Bilder. Mehrere Dateien sind möglich.</p>
+
+<label for="hersteller">Hersteller</label>
+<input id="hersteller" type="text" name="hersteller" value="{{ form.hersteller }}" autocomplete="off">
+{{ zeige_herkunft(h.get("hersteller")) }}
+
+<label for="lagerfach">Lagerfach</label>
+<input id="lagerfach" type="text" name="lagerfach" value="{{ form.lagerfach }}" autocomplete="off">
+
+<label for="menge">Menge</label>
+<input id="menge" type="number" name="menge" value="{{ form.menge }}" step="1" inputmode="numeric">
+
+<label for="tags">Tags</label>
+<input id="tags" type="text" name="tags" value="{{ form.tags }}"
+       placeholder="mit Komma getrennt, z. B. n-kanal, to-220" autocomplete="off" autocapitalize="off">
+{{ zeige_herkunft(h.get("tags")) }}
+
+<label for="aliase">Aliase</label>
+<input id="aliase" type="text" name="aliase" value="{{ form.aliase }}"
+       placeholder="weitere Bezeichnungen, mit Komma getrennt" autocomplete="off" autocapitalize="off">
+{{ zeige_herkunft(h.get("aliase")) }}
+
+<label for="notizen">Notizen</label>
+<textarea id="notizen" name="notizen" rows="3">{{ form.notizen }}</textarea>
+{{ zeige_herkunft(h.get("notizen")) }}
