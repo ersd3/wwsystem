@@ -1,6 +1,6 @@
 # Konzept — Bauteile-Lagersystem ("Lager")
 
-Stand: 2026-11-26 · Version 0.7.0 · Status: Phase 0.1, 0.2, 1, 2 und 3a (QR-Etiketten) umgesetzt, dazu Verwalten mit Papierkorb; von Lukas am Handy geprüft (Seiten, PDF öffnen, QR-Code lesen) und am PC (Umbenennen, Löschen) · Als Nächstes: offen, Vorschläge in HANDOVER.md §9 · Stand je Phase: §10
+Stand: 2026-11-27 · Version 0.7.0 · Status: Phase 0.1, 0.2, 1, 2 und 3a (QR-Etiketten) umgesetzt, dazu Verwalten mit Papierkorb; von Lukas am Handy geprüft (Seiten, PDF öffnen, QR-Code lesen) und am PC (Umbenennen, Löschen) · Als Nächstes: Automatisch ergänzen (§6d, geplant; Modelle getestet, Mouser-Schlüssel wartet auf Freigabe) · Stand je Phase: §10
 
 ## 1. Ziel
 
@@ -292,6 +292,128 @@ normale Kamera-App des Handys öffnet sie; eine eigene App ist nicht nötig (D8)
   Rechnen in Millimetern). Das Druckbild ist HTML mit festen mm-Maßen; ein PDF wird nicht
   erzeugt, der Browser kann aber als PDF drucken.
 
+## 6d. Automatisch ergänzen (geplant, D25)
+
+Von Lukas am 2026-11-26 bestätigter Plan. Gebaut ist bisher nur das Probelauf-Skript
+`tools/probelauf.py`; Ergebnisse siehe unten.
+
+**Ziel.** Beim Anlegen eines Bauteils gibt Lukas einen Namen, ein Foto oder einen Screenshot
+(z. B. einer Shop-Seite) ein und wählt „Automatisch ergänzen“. Das Programm sucht Datenblatt,
+Kennwerte, KiCad-Dateien und 3D-Modell und legt daraus einen Vorschlag an. Lukas prüft und
+speichert. Dieselbe Funktion soll später ein KI-Assistent anstoßen können.
+
+**Grundsätze**
+
+1. **Vorschlag statt Eintrag.** Ein Entwurf liegt im Lager unter `_entwuerfe/` (vom Scanner
+   ignoriert). Ein Bauteil entsteht erst durch „Speichern“ von Lukas, egal wer gesucht hat.
+2. **Jeder Wert mit Herkunft:** Schnittstelle, Quelle (Link und wörtliche Textstelle) oder leer.
+3. **Die Schnittstelle liefert die Daten, die KI übersetzt nur.** Die KI macht aus der Eingabe
+   Suchbegriffe und recherchiert, was keine Schnittstelle kennt. Sie entscheidet nicht, welches
+   Bauteil es ist; der Originalbegriff wird immer mitgesucht.
+4. **Belegprüfung ohne KI.** Ein von der KI gelesener Wert wird nur übernommen, wenn die
+   genannte Textstelle in der geladenen Quelle wirklich vorkommt. Sonst erscheint er nur als
+   Hinweis. So gilt „Nichts erfinden“ auch für die KI.
+5. **Lokal.** Das Modell läuft über LM Studio auf Lukas' PC (zuerst Muse Glimmer). Aus dem Haus
+   gehen nur Suchbegriffe an Mouser und Suchanfragen ans Web.
+6. **Nichts in fremden Namen.** Shop-Seiten (Amazon, AliExpress) werden nicht automatisch
+   abgerufen; sie sperren das. Eingabe ist ein Screenshot oder der kopierte Text. Formulare mit
+   Lukas' Daten (Modell-Anfrage bei SamacSys) schickt Lukas selbst ab.
+
+**Ablauf eines Vorschlags**
+
+| Stufe | Was passiert | Herkunft im Vorschlag |
+|---|---|---|
+| 1 | Eingabe aufräumen (Leerzeichen, Groß/Klein), ohne KI | – |
+| 2 | KI bildet Suchbegriffe und ordnet ein: Händlerteil, Modul/No-Name oder generisch (nur ein Wert, z. B. 10 kΩ) | Suchbegriffe sichtbar |
+| 3 | Mouser: genau ein exakter Treffer wird vorausgewählt, mehrere ergeben eine Auswahlliste (Bild, Hersteller, Gehäuse), keiner geht an Stufe 5 | „Schnittstelle“ |
+| 4 | KiCad und 3D: KiCad-Bibliothek über das Gehäuse, sonst Modell von Mouser/SamacSys; fehlt es, Knopf „Modell anfragen“ (Lukas schickt ab), am Bauteil „angefragt am …“, das gelieferte ZIP wird beim Hochladen einsortiert | „Bibliothek“ / „SamacSys“ |
+| 5 | KI-Recherche nur für die Lücken: Websuche, Seite und PDF lesen, Bild ansehen; Belegprüfung; Fortschrittsseite mit jedem Schritt und Stopp-Knopf | „Quelle“ mit Link |
+| 6 | Seite „Vorschlag prüfen“: jeder Wert mit Herkunft, Dateien zum Ansehen, „Speichern“ legt das Bauteil an | – |
+
+**Umsetzung in dieser Reihenfolge**
+
+0. Probelauf ohne Bauen: Mouser mit echten, auch ungenauen Eingaben; Tempo und Güte der
+   lokalen Modelle (`tools/probelauf.py`).
+1. Grundgerüst „Vorschlag“: Entwürfe, Seite „Vorschlag prüfen“, Speichern. Eingabe: Name.
+2. Mouser anbinden: Suche, Auswahlliste, Datenblatt laden, Kennwerte.
+3. Suchbegriffe durch die KI (Stufe 2).
+4. KiCad und 3D (Stufe 4).
+5. KI-Recherche für die Lücken mit Belegprüfung und Fortschrittsseite (Stufe 5).
+6. Foto und Screenshot als Eingabe; am Handy über die Kamera (Dateifeld, geht ohne HTTPS),
+   dazu der Barcode auf der Händlertüte.
+7. MCP-Server (bisher Phase 4), damit LM Studio Bionic und spätere Assistenten dieselben
+   Funktionen nutzen. Auch dann gilt: Gespeichert wird nur durch Lukas.
+
+**Einstellungen** in der lokalen `config.yaml` (Vorlage: `config.example.yaml`):
+`mouser.api_key` (nie in Git), `llm.base_url` (LM Studio, bei Lukas Port 1235), `llm.model`.
+
+**Später zu entscheiden:** woher die Websuche für Stufe 5 kommt (eigene Suchmaschine SearXNG
+oder eine Such-Schnittstelle mit Schlüssel); ob KiCad-Dateien von LCSC (`easyeda2kicad`)
+genutzt werden (nur privat); welches Modell (Empfehlung nach dem Probelauf: Muse Glimmer,
+Denkstufe „niedrig“, siehe unten).
+
+**Bewusst nicht:** Meta Muse (Cloud-Agent): in der EU nicht verfügbar, läuft in Metas
+Rechenzentrum und erreicht das Heimnetz nicht. LM Studio Bionic ist als Steuerpult am PC
+möglich, über den MCP-Server (Schritt 7).
+
+**Probelauf (Schritt 0)**
+
+Gelaufen in der Nacht vom 26. auf den 27.11.2026 auf Lukas' PC (RTX 5070 Ti mit 16 GB, Ryzen 9
+9900X3D, 31 GB RAM) mit `tools/probelauf.py reihe`: alle drei Modelle, die in LM Studio liegen,
+jedes in zwei Denkstufen („standard“ und „niedrig“ = `reasoning_effort: low`, das Modell denkt
+kürzer nach). Aufgaben:
+
+- **A** Suchbegriffe bilden und einordnen, 12 Eingaben von genau (`ne555`) bis vage
+  (`HW-130 Motor Shield aliexpress`); dazu `bc525`, das nicht zu einem bekannten Typ
+  „verbessert“ werden darf.
+- **B** acht Werte mit wörtlichem Beleg aus einem Shop-Text lesen; drei davon stehen nicht im
+  Text und müssen leer bleiben (Abmessungen, Gewicht, Hersteller).
+- **C** mit einem Such-Werkzeug (feste Trefferliste) das Datenblatt zum HW-130 finden; richtig
+  ist das des Herstellers (TI), nicht eine Kopie.
+- **D** ein Bauteil auf einem Foto erkennen (Raspberry Pi Pico).
+
+| Modell (alle 4 Bit, Q4_K_M) | Denken | A Suchbegriffe | B Belege | C Hersteller-Datenblatt | D Bild | Tokens/s | s je Suchbegriff | Dauer gesamt |
+|---|---|---|---|---|---|---|---|---|
+| Gemma 4 12B (7,6 GB, ganz auf der Grafikkarte) | niedrig | 11 von 12 | 8 von 8, nichts erfunden | ja | richtig | 78 | 11 | 3 min |
+| | standard | 11 von 12 | 8 von 8, nichts erfunden | ja | falsch („Raspberry Pi Model B+“) | 78 | 11 | 3 min |
+| Muse Glimmer 28B (18 GB, 82 % auf der Grafikkarte) | niedrig | 11 von 12 | 8 von 8, nichts erfunden | ja | richtig | 16 | 19 | 5 min |
+| | standard | 11 von 12 | 8 von 8, nichts erfunden | ja (nach 13 Suchen) | richtig | 16 | 74 | 18 min |
+| Qwen 3.8 27B (18 GB, 80 % auf der Grafikkarte) | niedrig | 10 von 12 | 8 von 8, nichts erfunden | ja | richtig | 26 | 17 | 4 min |
+| | standard | 11 von 12 | 8 von 8, nichts erfunden | ja | richtig | 26 | 74 | 17 min |
+
+Was dabei auffiel:
+
+- **HW-130:** Kein Modell weiß aus dem Namen allein, dass ein L293D darauf sitzt (der eine
+  Fehler in A bei allen). Mit dem Such-Werkzeug (C) fanden es alle und wählten das Datenblatt
+  von TI. Die Recherche-Stufe 5 ist also nötig und klappt.
+- **Belege:** Alle Modelle haben jeden Wert wörtlich belegt und die drei Fallen leer gelassen.
+- **Denkstufe:** „niedrig“ ist bei Muse Glimmer und Qwen etwa viermal so schnell, ohne
+  schlechtere Ergebnisse (Qwen ordnete in „niedrig“ zusätzlich den LM317 als „generisch“ ein).
+  Bei Gemma ändert die Stufe nichts am Tempo.
+- **Selbsteinschätzung** (Feld „sicherheit“): Gemma meldet immer „hoch“, auch beim falschen
+  Bild und bei `bc525`. Muse Glimmer meldet bei `bc525`, beim HW-130 und beim Joy-It-Shield
+  „mittel“ oder „gering“. Das Programm prüft Belege ohnehin selbst; als Warnung taugt aber nur
+  die Angabe von Muse Glimmer.
+- **Ohne Beleg ergänzt:** Für `bc525` schreiben Gemma und Qwen (niedrig) ohne Beleg
+  „NPN-Transistor“, Qwen (niedrig) dazu Hersteller, jeweils mit „hoch“. Muse Glimmer lässt beides
+  leer. Gemma schreibt „unbekannt“ oder „N/A“, wo das Feld leer bleiben soll; das Programm muss
+  solche Platzhalter leeren.
+- **Tempo:** Gemma passt ganz auf die Grafikkarte und ist etwa fünfmal so schnell wie Muse
+  Glimmer. Muse Glimmer lief mit 16 statt 9,5 Tokens/s am Vortag, weil mehr Grafikspeicher frei
+  war (82 % statt 65 % des Modells auf der Karte).
+
+**Empfehlung (entscheidet Lukas):** Muse Glimmer mit Denkstufe „niedrig“ als Standard: so
+viele Treffer wie Gemma, das Bild in beiden Stufen richtig, ehrliche Selbsteinschätzung, nichts
+ohne Beleg ergänzt. Rund 20 s je KI-Schritt; ein Vorschlag mit geschätzt drei bis sechs
+KI-Schritten dauert damit ein bis zwei Minuten. Gemma 4 12B als schnelle Wahl (rund 10 s je
+Schritt), wenn die Grafikkarte belegt ist; Bilder und Selbsteinschätzung dann mit Vorsicht.
+Qwen bringt gegenüber Muse Glimmer keinen Vorteil. Zwei Modelle zugleich passen nicht in die
+16 GB; eingestellt wird eines (`llm.model`). Die Denkstufe kommt in Schritt 3 als Einstellung
+dazu.
+
+**Mouser:** Der Schlüssel war am 26. und am 27.11. noch nicht freigegeben („Invalid unique
+identifier“). Dieser Teil von Schritt 0 steht aus.
+
 ## 7. Architektur (Zielbild)
 
 ```
@@ -316,7 +438,7 @@ Schnittstellen:
 - **Web** (Phase 2): zuerst fürs Handy gestaltet — Suche, Kategorie-Browse, Bauteilseite,
   Datenblatt öffnen. Das ist zugleich die mobile App (D8).
 - **QR** (Phase 3a, §6c): `http://<name>:<port>/p/<Bezeichnung>` — jede Handy-Kamera öffnet die Seite
-- **MCP** (Phase 4): Tools `search_parts, get_part, create_part, …` für die Datenpflege
+- **MCP** (Phase 4, jetzt Schritt 7 von §6d): Tools `search_parts, get_part, create_part, …` für die Datenpflege
   durch lokale Agenten
 
 ### Stand des Servers (2026-11-26)
@@ -502,8 +624,9 @@ beliebigen SQLite-Browser vollständig lesen und sinnvoll bearbeiten lassen.
 | 3a | QR-Etiketten: erzeugen, auf A4 drucken, mit dem Handy lesen; Adresse als Name statt IP | ✅ Seite `/etiketten`, QR-Code auf der Bauteilseite, `lager qr url`, `lager qr make` (§6c). Von Lukas geprüft (2026-11-13): Das Handy liest den Code und öffnet das Bauteil |
 | – | Verwalten (Wünsche aus dem ersten größeren Test, 2026-11-14) | ✅ Bezeichnungen mit Leerzeichen und Kleinbuchstaben, Unterkategorien, Umbenennen, Verschieben, Bauteile und Dateien löschen (Papierkorb), Hochladen gleich nach der Auswahl mit Fortschritt, Ordner-Auswahlfenster für den Lager-Ordner (§6b, §7) |
 | – | Rückmeldung zu 0.6.0 (2026-11-26) | ✅ Bauteilseite mit drei eigenen Knöpfen (Bearbeiten, Umbenennen, Löschen) und eigenen Seiten, Papierkorb als Seite mit Wiederherstellen, `config.yaml` nur noch lokal mit Vorlage `config.example.yaml` (0.7.0) |
+| A | Automatisch ergänzen: Vorschlag aus Mouser, KiCad-Bibliothek und lokaler KI-Recherche, Prüfseite, Foto als Eingabe (§6d) | geplant (2026-11-26); Schritt 0: Modelle getestet (2026-11-27), Mouser-Schlüssel noch nicht freigegeben |
 | 3b | HTTPS mit Kamera-Scanner in der Seite und Startbildschirm (PWA) | offen |
-| 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
+| 4 | MCP-Server für die Datenpflege durch lokale Agenten | geht in Schritt 7 von §6d auf |
 | 5 | Mengen ein- und ausbuchen mit Verlauf (`movements`) | offen |
 | 6 | Linux-Härtung, Packaging, Backup | offen |
 
@@ -512,25 +635,12 @@ Vorher standen Mengenbuchungen und MCP vor der Handy-Nutzung.
 
 ### Ideen für später (noch nicht eingeplant)
 
-Zwei Wünsche von Lukas vom 2026-11-12, mit einer ersten Einschätzung. Beide sind machbar;
-über Reihenfolge und Umfang ist noch nicht entschieden.
+Zwei Wünsche von Lukas vom 2026-11-12, mit einer ersten Einschätzung. A ist inzwischen
+eingeplant (§6d); über B ist noch nicht entschieden.
 
-**A. Bauteil automatisch ergänzen lassen.** Nach dem Anlegen sucht ein Helfer Datenblatt,
-Beschreibung, Hersteller und Kennwerte und trägt sie ein.
-
-| Stufe | Inhalt | Aufwand | Verlässlichkeit |
-|---|---|---|---|
-| A1 | Nachschlagen bei einem Bauteile-Händler über dessen Schnittstelle (z. B. Mouser, Digi-Key): Beschreibung, Hersteller, Link zum Datenblatt, PDF laden. Ohne KI. | klein bis mittel | hoch, die Daten kommen strukturiert vom Händler |
-| A2 | Lokales Modell (LM Studio) formuliert die Beschreibung auf Deutsch, schlägt Tags und Kategorie vor und liest Kennwerte aus dem PDF. | mittel | hängt stark vom Modell ab; Vorschläge müssen bestätigt werden |
-| A3 | Agent sucht selbstständig im Netz, auch nach 3D-Modellen und KiCad-Dateien. | groß | gering: falsche Treffer bei ähnlichen Bezeichnungen, Quellen mit Anmeldung und Nutzungsbedingungen |
-
-- Technisch passt es: LM Studio bietet lokal eine OpenAI-kompatible Schnittstelle mit
-  Werkzeug-Aufrufen und kann MCP-Server einbinden. Der Lager-Server würde nach dem Anlegen
-  einen Auftrag im Hintergrund starten und den Stand am Bauteil zeigen.
-- Voraussetzungen: ein Händler-Zugang (kostenloser Schlüssel) für A1; für A2 ein Schritt
-  „Vorschlag prüfen und übernehmen“, damit keine erfundenen Werte im Lager landen; je Feld
-  die Quelle merken.
-- Empfehlung: A1 zuerst, A2 darauf aufbauen, A3 vorerst nicht.
+**A. Bauteil automatisch ergänzen lassen.** Seit 2026-11-26 eingeplant, siehe §6d und D25.
+Die erste Einschätzung (Stufen A1 bis A3) ist dort aufgegangen: A1 entspricht der Mouser-Stufe,
+A2 der KI-Stufe mit Belegprüfung, A3 der Recherche für Teile ohne Treffer.
 
 **B. KiCad-Dateien als Bibliothek bereitstellen.** Die im Lager abgelegten Footprints und
 Symbole erscheinen direkt in KiCad.
@@ -578,3 +688,4 @@ Symbole erscheinen direkt in KiCad.
 | D22 | 2026-11-26 | Der Papierkorb des Lagers hat eine eigene Seite (und `lager trash`): ansehen, wiederherstellen, im Explorer öffnen. Endgültig gelöscht wird weiter nur im Explorer. Anlass: Lukas hat den Ordner `_papierkorb` nicht gefunden (s. §6b) |
 | D23 | 2026-11-26 | `config.yaml` steht nicht mehr in Git; eingecheckt ist die Vorlage `config.example.yaml`, aus der das Programm eine fehlende `config.yaml` beim ersten Speichern anlegt. Lukas: Die bisherige Konfiguration war nur zum Testen und enthält nichts Vertrauliches (s. §4) |
 | D24 | 2026-11-26 | Bearbeiten, Umbenennen und Löschen sind drei eigene Knöpfe auf der Bauteilseite mit je eigener Seite; Löschen fragt auf einer eigenen Seite nach (statt Häkchen). Wunsch von Lukas (s. §6b) |
+| D25 | 2026-11-26 | Plan „Automatisch ergänzen“: Vorschlag statt Eintrag; Mouser liefert die Daten, eine lokale KI (LM Studio) übersetzt nur Suchbegriffe und recherchiert die Lücken; jeder KI-Wert braucht einen Beleg, den das Programm prüft; Speichern nur durch Lukas; Meta Muse (Cloud) nicht, LM Studio Bionic optional über MCP. Von Lukas bestätigt (s. §6d) |

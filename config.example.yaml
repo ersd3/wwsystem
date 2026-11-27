@@ -24,6 +24,19 @@ server:
 write_token: ""
 
 
+# Automatisch ergänzen (geplant, KONZEPT.md §6d). Den Schlüssel nur in der eigenen
+# config.yaml eintragen, nie hier: Diese Vorlage steht in Git und ist öffentlich.
+# Kostenloser Schlüssel: mouser.com, „Search API“.
+mouser:
+  api_key: ""
+
+# Lokales Sprachmodell über LM Studio (OpenAI-kompatible Schnittstelle).
+# LM Studio: Server starten mit `lms server start`, Modell laden mit `lms load <modell>`.
+llm:
+  base_url: "http://127.0.0.1:1234/v1"
+  model: "meta/muse-glimmer"
+
+
 # Dateiarten nach Dateiendung (optional). Ohne diesen Eintrag gelten die Standardwerte:
 # file_kinds:
 #   datasheet: [pdf]

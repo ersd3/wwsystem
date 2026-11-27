@@ -1,20 +1,22 @@
 # HANDOVER — Bauteile-Lagersystem „Lager“
 
-**Stand:** 2026-11-26, Version 0.7.0
+**Stand:** 2026-11-27, Version 0.7.0
 **Zuletzt bearbeitet von:** Claude Opus 5.5 (Claude Code), vorher Claude Fable 5.2
 **Vorgeschichte:** begonnen von einem lokalen LM-Studio-Agenten am 2026-11-11; die ganze Historie steht in Git.
 
 Dieses Dokument beschreibt den aktuellen Zustand. Regeln und Befehle in Kurzform stehen in
-[CLAUDE.md](CLAUDE.md), Konzept und Entscheidungen (D1–D24) in [KONZEPT.md](KONZEPT.md).
+[CLAUDE.md](CLAUDE.md), Konzept und Entscheidungen (D1–D25) in [KONZEPT.md](KONZEPT.md).
 
 ---
 
 ## 0. Einstieg für den nächsten Agenten
 
-**Der Stand ist abgeschlossen:** Alles bis Version 0.7.0 ist committet und auf `main` gepusht.
-Es gibt keine angefangene Arbeit. 0.7.0 setzt Lukas' Rückmeldung zu 0.6.0 um (eigene Knöpfe,
-Papierkorb-Seite, `config.yaml` lokal); seine Rückmeldung dazu ist der wahrscheinlichste
-nächste Auftrag.
+**Der Stand ist abgeschlossen:** Alles bis Version 0.7.0, dazu der Plan für „Automatisch
+ergänzen“ und das Probelauf-Skript, ist committet und auf `main` gepusht.
+0.7.0 setzt Lukas' Rückmeldung zu 0.6.0 um (eigene Knöpfe, Papierkorb-Seite, `config.yaml`
+lokal). **Als Nächstes geplant ist „Automatisch ergänzen“** (KONZEPT.md §6d, D25): Schritt 0,
+der Probelauf mit `tools/probelauf.py`: Die lokalen Modelle sind getestet, der Mouser-Schlüssel
+wartet noch auf Freigabe (§9). Gebaut ist noch nichts.
 
 **In dieser Reihenfolge lesen:** `CLAUDE.md` (Regeln, Befehle, Stolpersteine), dieses Dokument,
 dann von `KONZEPT.md` nur die Abschnitte, die zur Aufgabe gehören (§3 Ordner, §5 Kategorien,
@@ -80,6 +82,7 @@ Lukas verwaltet privat eine große Sammlung elektronischer Bauteile. Das System 
 | 3a | QR-Etiketten: Seite `/etiketten` (Druck auf A4), QR-Code auf der Bauteilseite, Adresse als Name, `lager qr url`, `lager qr make` | fertig; von Lukas geprüft: Das Handy liest den Code |
 | – | Verwalten (0.6.0): freie Bezeichnungen, Unterkategorien, umbenennen, verschieben, löschen in den Papierkorb, Hochladen mit Fortschritt, Ordner-Auswahlfenster | fertig; von Lukas am PC ausprobiert: Umbenennen und Löschen gehen, den Papierkorb hat er nicht gefunden |
 | – | Rückmeldung zu 0.6.0 (0.7.0): drei eigene Knöpfe mit neuem Design, eigene Seiten für Umbenennen und Löschen, Papierkorb-Seite mit Wiederherstellen, `config.yaml` lokal | fertig; von Lukas noch nicht ausprobiert |
+| A | Automatisch ergänzen (KONZEPT.md §6d): Vorschlag aus Mouser, KiCad-Bibliothek und lokaler KI-Recherche, Prüfseite | geplant; Modelle getestet, Mouser-Schlüssel wartet auf Freigabe (§9) |
 | 3b | HTTPS mit Kamera-Scanner in der Seite und Startbildschirm | offen |
 | 4 | MCP-Server für die Datenpflege durch lokale Agenten | offen |
 | 5 | Mengen ein- und ausbuchen mit Verlauf | offen |
@@ -158,6 +161,9 @@ Python 3.14 ist für das Benutzerkonto installiert. Das venv liegt in `.venv` (n
 | `lager qr url [ADRESSE]` | Adresse der QR-Codes zeigen (mit Vorschlag) oder speichern |
 | `lager qr make <TEIL>… [--format svg\|png] [--out ORDNER] [--url BASIS]` | einzelne QR-Bilder schreiben |
 | `lager trash list`, `lager trash restore <ID>`, `lager trash open` | Papierkorb ansehen, Eintrag zurückholen, Ordner im Explorer öffnen |
+| `python tools/probelauf.py mouser [Begriff …] [--exakt]` | Mouser-Schlüssel prüfen, Trefferlisten ansehen (Schlüssel aus `config.yaml`, wird nie ausgegeben) |
+| `python tools/probelauf.py modell [--model ID] [--bild PFAD] [--json DATEI] [--denken niedrig]` | ein geladenes Modell über LM Studio auf Tempo und Güte testen |
+| `python tools/probelauf.py reihe --ordner ORDNER [--bild PFAD] [--stunden N]` | alle Modelle in LM Studio nacheinander laden und testen, beide Denkstufen, Übersicht in `ORDNER/uebersicht.md`; schon getestete werden übersprungen, am Ende wird alles entladen |
 | `lager serve [--host H] [--port P]` | Web-Server starten; fürs Handy `--host 0.0.0.0` |
 
 Jeder Befehl kennt `--json`. Fehler: Exit-Code ungleich 0 und deutsche Meldung auf stderr.
@@ -208,6 +214,7 @@ tests/
   test_trash.py          Papierkorb: Inhalt, Wiederherstellen, Seiten, API, CLI
 tools/
   demo_server.py         Wegwerf-Lager mit Server für Sichtprüfungen im Browser (§7a)
+  probelauf.py           Probelauf für „Automatisch ergänzen“: Mouser und lokale Modelle (§9)
 lager/                   Beispiel-Lager (liegt im öffentlichen Repository)
 config.example.yaml      Vorlage (in Git): lager_root, server.host/port/public_url, write_token, file_kinds
 config.yaml              Einstellungen dieses Rechners (nicht in Git, wird aus der Vorlage angelegt)
@@ -279,6 +286,18 @@ config.yaml              Einstellungen dieses Rechners (nicht in Git, wird aus d
 - **Leeres Dateifeld:** Browser schicken es als leeren Text; deshalb `FormFiles` in `app.py`.
 - **SQLite und Threads:** Verbindung in der Route öffnen (`open_index`), nicht per `Depends`.
 - **Echte `config.yaml`:** Server-Tests übergeben immer `config_path` aus der Fixture.
+- **Geheimnisse:** Der Mouser-Schlüssel steht nur in Lukas' lokaler `config.yaml`
+  (`mouser.api_key`). Nie ausgeben, nie in Doku, Tests oder Commit-Nachrichten schreiben.
+- **LM Studio bei Lukas:** Der Server lauscht auf Port **1235** (nicht 1234). Muse Glimmer
+  (18 GB) passt nicht ganz in die 16 GB der Grafikkarte: laden mit
+  `lms load meta/muse-glimmer -c 8192 --gpu 0.65 --ttl 3600`; der Anteil hängt vom freien
+  Grafikspeicher ab (0.65 bis 0.82 in den Tests), `probelauf.py reihe` rechnet ihn selbst aus.
+  Nach einem Test wieder freigeben (`lms unload --all`, `lms server stop`), sonst bleibt die
+  Grafikkarte belegt.
+- **Denkende Modelle:** Muse Glimmer und Qwen denken vor der Antwort oft über 1000 Tokens lang.
+  `max_tokens` großzügig setzen (4000), sonst bricht die Antwort ab und das JSON ist ungültig.
+  `"reasoning_effort": "low"` in der Anfrage kürzt das Denken auf etwa ein Viertel; `"none"`
+  wird ignoriert.
 - **Pfadnamen in Tests:** Der Temp-Ordner enthält den Testnamen. Prüfungen wie
   `"bearbeiten" not in seite` schlagen deshalb fehl; auf genaue Stücke prüfen, etwa `href="…"`.
 - **UTF-8:** `cli.main()` stellt stdout und stderr fest auf UTF-8, sonst kommen Umlaute bei
@@ -409,32 +428,54 @@ Lager oder ein neuer Wunsch zuerst anstößt.
 In dieser Reihenfolge, jeweils erst nach Absprache mit Lukas. Zu jedem Punkt steht, woran
 man erkennt, dass er fertig ist.
 
-1. **Rückmeldung von Lukas zu 0.7.0 einarbeiten.** Er probiert die Knöpfe und den Papierkorb
-   an seinem Lager aus. Fertig, wenn er sie am PC und am Handy benutzt hat und nichts offen ist.
-2. **Nur falls Lukas es möchte: endgültig löschen im Programm** (einzelne Einträge oder den
+1. **Automatisch ergänzen, Schritt 0 abschließen** (KONZEPT.md §6d). Stand des Probelaufs:
+
+   - **Mouser:** Schlüssel eingetragen (lokale `config.yaml`), am 26. und 27.11. noch nicht von
+     Mouser freigegeben (Antwort „Invalid unique identifier“). Wieder prüfen mit
+     `python tools/probelauf.py mouser`.
+   - **Modelle: getestet** in der Nacht vom 26. auf den 27.11. (Gemma 4 12B, Muse Glimmer,
+     Qwen 3.8 27B, je zwei Denkstufen). Tabelle und Beobachtungen in KONZEPT.md §6d. Kurz: alle
+     belegen sauber und finden mit Suche das Hersteller-Datenblatt; Gemma ist fünfmal so
+     schnell, meldet aber immer „hoch“ und lag einmal beim Bild falsch. **Empfehlung: Muse
+     Glimmer mit Denkstufe „niedrig“** (rund 20 s je KI-Schritt), Gemma als schnelle Wahl.
+     Die Rohberichte lagen nur im Scratchpad der Sitzung; ein neu geladenes Modell lässt sich
+     mit `probelauf.py reihe` nachtesten.
+
+   Fertig, wenn der Mouser-Schlüssel freigegeben ist, `probelauf.py mouser` die Trefferlisten
+   für die Standard-Begriffe zeigt und Lukas das Modell bestätigt hat. Danach die Schritte 1
+   bis 7 aus §6d, jeder mit Tests und Prüfung im Browser. Schritt 1 (Grundgerüst „Vorschlag“)
+   braucht weder Mouser noch Modell und könnte schon vorher beginnen, wenn Lukas das möchte.
+2. **Rückmeldung von Lukas zu 0.7.0 einarbeiten,** sobald er die Knöpfe und den Papierkorb
+   an seinem Lager benutzt hat.
+3. **Nur falls Lukas es möchte: endgültig löschen im Programm** (einzelne Einträge oder den
    ganzen Papierkorb). Nicht umkehrbar: nur mit ausdrücklicher Bestätigung auf einer eigenen
    Seite. Bis dahin geht es bewusst nur im Explorer (D22).
-3. **Umgebungsvariable für eine andere `config.yaml`**, damit sich die CLI gefahrlos gegen ein
+4. **Umgebungsvariable für eine andere `config.yaml`**, damit sich die CLI gefahrlos gegen ein
    Wegwerf-Lager ausprobieren lässt (heute zeigt die CLI im Projektordner immer auf Lukas'
    Lager). Fertig, wenn `tools/demo_server.py` und ein Test sie nutzen.
-4. **Kategorien und Unterkategorien im Web verwalten:** umbenennen (Kategorie: nur der
+5. **Kategorien und Unterkategorien im Web verwalten:** umbenennen (Kategorie: nur der
    Anzeigename in `categories.yaml`; Unterkategorie: der Ordner), leere löschen. Eine
    Kategorie-ID zu ändern hieße, den Ordner umzubenennen; das ändert alle Pfade darunter und
    braucht eine eigene Entscheidung.
-5. **Kleinigkeiten:** Fortschrittsbalken auch auf `/neu`; Favicon; Index nur für geänderte
+6. **Kleinigkeiten:** Fortschrittsbalken auch auf `/neu`; Favicon; Index nur für geänderte
    Bauteile aktualisieren (siehe „Bekannte Grenzen“), sobald ein Lager dafür groß genug ist.
-6. **Phase 3b: HTTPS**, damit Kamera-Scanner in der Seite und Startbildschirm möglich werden.
+7. **Phase 3b: HTTPS**, damit Kamera-Scanner in der Seite und Startbildschirm möglich werden.
    Vorher mit Lukas klären, wie das Zertifikat entstehen soll (selbst erzeugt und am Handy
    als vertrauenswürdig eingetragen, oder ein Rechner davor, der HTTPS übernimmt). Die schon
    gedruckten Etiketten zeigen auf `http://…`; eine Umstellung der Adresse macht sie ungültig,
    wenn `http` nicht weiter angeboten oder weitergeleitet wird.
-7. **Phase 4 bis 6** und die Ideen A und B wie in `KONZEPT.md` §10 beschrieben.
+8. **Phase 5 und 6** und Idee B wie in `KONZEPT.md` §10 beschrieben (Phase 4, MCP, ist
+   Schritt 7 von „Automatisch ergänzen“).
 
 ## 10. Offene Fragen an Lukas
 
 - **Test-Bauteile im Beispiel-Lager:** Unter `lager/microcontroller/` liegen drei Bauteile aus
   Lukas' Test, eines mit einem Datenblatt eines Herstellers. Sie sind nicht eingecheckt. Sollen
   sie ins Beispiel-Lager oder wieder weg?
+- **Automatisch ergänzen** (KONZEPT.md §6d): Woher kommt die Websuche für die Recherche
+  (eigene Suchmaschine SearXNG oder Such-Schnittstelle mit Schlüssel)? KiCad-Dateien von LCSC
+  (`easyeda2kicad`, nur privat) nutzen? Modell: Empfehlung nach dem Vergleich ist Muse Glimmer
+  mit Denkstufe „niedrig“ (KONZEPT.md §6d), einverstanden?
 - Soll das Gerät im Router nach dem Dienst heißen (z. B. `lager`), bevor viele Etiketten
   gedruckt werden?
 - Soll der Server dauerhaft im WLAN lauschen (`server.host: "0.0.0.0"` in der `config.yaml`)?
